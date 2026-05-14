@@ -2,7 +2,7 @@
 
 Urban digital twin for heat-risk-aware service robots in Nihonbashi, Tokyo.
 
-This repository covers **Phases 1–3** of the six-stage research methodology authored by Xilin Tang: baseline ABM testing of an existing product (Starship), conceptual design of the Nihonbashi Heat-Support Robot, and a first SUMO/ABM A/B simulation cycle with iterative feedback. Phases 4–6 (AI + CAD optimization, re-validation, Omniverse / Isaac Sim high-fidelity validation) are tracked here but executed in a downstream repository once Phase 3 converges.
+This repository covers **Phases 1–3** of the six-stage research methodology: baseline ABM testing of an existing product (Starship), conceptual design of the Nihonbashi Heat-Support Robot, and a first SUMO/ABM A/B simulation cycle with iterative feedback. Phases 4–6 (AI + CAD optimization, re-validation, Omniverse / Isaac Sim high-fidelity validation) are tracked here but executed in a downstream repository once Phase 3 converges.
 
 ---
 
@@ -58,9 +58,9 @@ Then read `docs/phase1_baseline.md` to see the current run protocol.
 | Member | Area | Folders |
 |---|---|---|
 | Xilin Tang | Industrial design, methodology | `design/`, `docs/methodology.md` |
-| Yi Tai | ABM / SUMO modeling | `sim/abm/`, `sim/sumo/`, `analysis/metrics.py` |
+| Yi Tai | ABM / SUMO modeling,  GIS digital-twin orchestration, analysis pipeline | `sim/abm/`, `sim/sumo/`, `analysis/metrics.py` |
 | Qinghao | Thermal-risk theory, heat-exposure model | `data/heat_risk/`, heat-science portions of `docs/phase1_baseline.md` |
-| Sam Duong | GIS digital-twin orchestration, analysis pipeline | `data/`, `scripts/`, `analysis/`, `outputs/slides/` |
+| Sam Duong | ABM / SUMO modeling, GIS digital-twin orchestration, analysis pipeline | `data/`, `scripts/`, `analysis/`, `outputs/slides/` |
 
 ---
 
