@@ -1,0 +1,12 @@
+parameter,value,unit,source_url,note
+body_width,569,mm,https://www.starship.xyz/,Front-view dimension per public spec
+body_length,697,mm,https://www.starship.xyz/,Side-view dimension per public spec
+body_height,616,mm,https://www.starship.xyz/,Excluding flag pole
+body_height_with_flag,1187,mm,https://www.starship.xyz/,Flag adds 571 mm
+max_speed,6,km_per_h,https://www.starship.xyz/,Sidewalk-class pedestrian speed
+turning_radius,0.8,m,estimated,Differential drive estimate
+payload,10,kg,public_spec_estimate,Approximate from public reporting
+docking_duration,30,s,estimated,At service node
+avoidance_behavior,reactive,enum,https://www.starship.xyz/,"Stop and replan with cameras, radars, ultrasonics"
+service_frequency,12,tasks_per_hr,estimated,Peak per-robot rate
+charging_logic,return_to_hub,enum,https://www.starship.xyz/,Return at low battery

@@ -1,0 +1,73 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Notebooks
+.ipynb_checkpoints/
+*.ipynb_meta
+
+# Secrets / env
+.env
+.env.local
+*.pem
+*.key
+secrets.json
+
+# Simulation outputs (large; reference in docs instead)
+sim/runs/*/raw/
+sim/runs/*/*.csv.zip
+sim/runs/*/trace_*.xml
+*.log
+
+# CAD / 3D / large binaries
+*.f3d
+*.f3z
+*.3dm
+*.blend1
+*.fbx
+*.usd
+*.usda
+*.usdc
+*.usdz
+
+# GIS large files (use OneDrive/ArcGIS Online for sharing instead)
+*.gdb/
+*.shp
+*.shx
+*.dbf
+*.sbn
+*.sbx
+*.tif
+*.tiff
+*.las
+*.laz
+data/heat_risk/raw/
+data/pedestrian/raw/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*~
+
+# Build / dist
+dist/
+build/
+*.egg
+
+# Outputs that should be regenerated, not committed
+outputs/figures/auto/
+outputs/reports/auto/

@@ -1,0 +1,18 @@
+category,variable,unit,baseline_value,proposal_v1_value,proposal_v2_value,proposal_v3_value,final_value,design_rationale,friction_point_ids,owner
+product,body_width,mm,569,680,,,,Wider for cargo modularity but still within Nihonbashi sidewalk min width,,Xilin
+product,body_length,mm,697,980,,,,Longer to accommodate swappable cargo modules,,Xilin
+product,body_height,mm,616,1050,,,,Taller to host top-mounted sensors and visual cues,,Xilin
+product,max_speed,km_per_h,6,6,,,,METI 2023 cap; throttle to 4 km/h in high-density windows,,Yi Tai
+product,turning_radius,m,0.8,0.6,,,,Tighter turn for dense pedestrian flow,,Yi Tai
+product,payload,kg,10,15,,,,Larger cargo to support water + first-aid kit combined,,Xilin
+product,docking_method,enum,reverse_slot_in,lift_off_module,,,,Lift-off reduces docking dwell time,,Xilin
+product,docking_duration,s,30,15,,,,Halved by lift-off module + peripheral waiting,,Xilin
+task,service_frequency,tasks_per_hr,12,18,,,,Higher throughput with shorter docking,,Yi Tai
+task,charging_logic,enum,return_to_hub,opportunistic,,,,Top-up at multiple service nodes during low-demand windows,,Yi Tai
+design_cue,lighting_cue,enum,none,directional_intent_strip,,,,Pedestrians cannot anticipate Starship behavior; lighting strip signals next move,,Xilin
+design_cue,sound_cue,enum,none,soft_chime_on_dock,,,,Audible cue for vulnerable pedestrians,,Xilin
+design_cue,screen_info,enum,none,top_screen_status,,,,Shows current task + ETA to nearby pedestrians,,Xilin
+design_cue,motion_rhythm,enum,constant,slow_for_crowd,,,,Visible deceleration in advance of crowds,,Xilin
+environmental,sidewalk_min_width,m,4.0,4.0,,,,Constraint from Nihonbashi scene survey,,Sam
+environmental,service_nodes_count,int,2,4,,,,Disperse docking to reduce congestion,,Xilin
+human_behavior,vulnerable_pop_detection,enum,off,on,,,,Robot slows + announces near elderly clusters,,Xilin
