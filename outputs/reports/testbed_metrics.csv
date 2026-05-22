@@ -1,0 +1,4 @@
+scenario,cumulative_population_exposure,vulnerability_weighted_exposure,mean_peak_hourly_exposure,sheltered_agent_hours,shelter_utilization_rate,unmet_shelter_demand,cooling_energy_kwh,cooling_emissions_kgco2e,equity_gap_ratio,mean_decision_latency_ms,provenance_coverage
+baseline,4871.153,1990.353,1.8248,0,0.0,2482,0.0,0.0,0.9909,0.0009,1.0
+reactive,3325.592,1365.229,1.5277,1066,0.244,1416,1224.72,589.345,0.9976,0.0025,1.0
+proactive,3277.659,1314.704,1.5608,1144,0.2619,1338,1304.81,631.17,0.9068,0.0036,1.0
