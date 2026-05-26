@@ -1,0 +1,31 @@
+flowchart LR
+  classDef s1 fill:#fff3b0,stroke:#5a4a00,color:#0a0a0a
+  classDef s2 fill:#f5e6ff,stroke:#5a1a8f,color:#0a0a0a,stroke-dasharray: 4 3
+
+  subgraph S1[Stage One — 5/25 review]
+    A1[Synthetic 20x10 grid scene]:::s1
+    A2[Sampled synthetic population]:::s1
+    A3[NumPy heat field]:::s1
+    A4[Piecewise-constant shelter envelope]:::s1
+    A5[Threshold-rule policy]:::s1
+    A6[Pure-Python step loop]:::s1
+    A7[Folium + Plotly + Streamlit]:::s1
+  end
+
+  subgraph S2[Stage Two — post-handoff]
+    B1[Yi Tai SHP to SUMO Nihonbashi network]:::s2
+    B2[Urban Risk synthetic-population engine output]:::s2
+    B3[Urban Risk hourly raster from sensors / model]:::s2
+    B4[Urban Regeneration N-UBEM + ReOpt output]:::s2
+    B5[LLM-driven agentic planner]:::s2
+    B6[Mesa ABM + SUMO microsim co-sim]:::s2
+    B7[NVIDIA Omniverse twin + Isaac Sim]:::s2
+  end
+
+  A1 -.->|drop-in| B1
+  A2 -.->|drop-in| B2
+  A3 -.->|drop-in| B3
+  A4 -.->|drop-in| B4
+  A5 -.->|extend| B5
+  A6 -.->|extend| B6
+  A7 -.->|escalate| B7

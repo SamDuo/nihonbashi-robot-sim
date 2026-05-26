@@ -1,0 +1,49 @@
+flowchart TB
+  classDef loader fill:#e3f2fd,stroke:#0d47a1,color:#0a0a0a
+  classDef core fill:#fff3b0,stroke:#5a4a00,color:#0a0a0a
+  classDef policy fill:#ffe0b2,stroke:#bf360c,color:#0a0a0a
+  classDef out fill:#c8e6c9,stroke:#1b5e20,color:#0a0a0a
+  classDef store fill:#eceff1,stroke:#37474f,color:#0a0a0a
+
+  subgraph LOAD[sim/testbed loaders — schema-validated]
+    L1[population.py<br/>Urban Risk schema]:::loader
+    L2[heat_field.py<br/>Urban Risk schema]:::loader
+    L3[shelter_model.py<br/>Urban Regeneration schema]:::loader
+    L4[scene.py<br/>SHP / synthetic grid]:::loader
+  end
+
+  subgraph CORE[Core simulation — Mesa + Shapely]
+    M1[World state<br/>agents · cells · shelters]:::core
+    M2[simulator.py<br/>step loop, 1-hour ticks]:::core
+  end
+
+  subgraph POL[Policy layer — three scenarios]
+    P1[Baseline<br/>no intervention]:::policy
+    P2[Reactive<br/>threshold-triggered shelter routing]:::policy
+    P3[Proactive<br/>3-hour lookahead pre-positioning]:::policy
+  end
+
+  subgraph OUT[Outputs]
+    O1[metrics.py<br/>six metrics + twin metrics]:::out
+    O2[provenance.py<br/>per-decision JSONL]:::out
+    O3[visualize.py<br/>Folium map · Plotly · Streamlit]:::out
+  end
+
+  subgraph STORE[Stage One file layout]
+    D1[(data/from_group1/)]:::store
+    D2[(data/from_group2/)]:::store
+    D3[(outputs/figures/auto/)]:::store
+    D4[(outputs/reports/)]:::store
+  end
+
+  D1 --> L1 & L2
+  D2 --> L3
+  L4 --> M1
+  L1 & L2 & L3 --> M1
+  M1 --> M2 --> P1 & P2 & P3
+  P1 & P2 & P3 --> O1
+  P1 & P2 & P3 --> O2
+  O1 --> O3
+  O3 --> D3
+  O1 --> D4
+  O2 --> D4

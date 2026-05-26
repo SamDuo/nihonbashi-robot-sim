@@ -1,0 +1,65 @@
+flowchart LR
+  classDef group fill:#fff3b0,stroke:#5a4a00,color:#1a1a1a,stroke-width:1.5px
+  classDef ext fill:#dfe7fd,stroke:#1a3a8f,color:#1a1a1a
+  classDef stage2 fill:#f5e6ff,stroke:#5a1a8f,color:#1a1a1a,stroke-dasharray: 4 3
+  classDef store fill:#e8f5e9,stroke:#1b5e20,color:#1a1a1a
+
+  subgraph EXT[External producers and reference data]
+    PLATEAU[PLATEAU CityGML<br/>LOD2/LOD3 Tokyo]:::ext
+    OSM[OSM road network]:::ext
+    ARCGIS[ArcGIS Pro<br/>Yi Tai network cleanup]:::ext
+    PHASE1[Phase 1 Starship baseline<br/>ABM trace]:::ext
+  end
+
+  subgraph G1[Urban Risk — exposure and vulnerability]
+    G1POP[Synthetic population<br/>+ vulnerability]:::group
+    G1HEAT[Hourly heat-cost raster]:::group
+    G1OCC[Occupancy schedule]:::group
+  end
+
+  subgraph G2[Urban Regeneration — energy and cooling envelope]
+    G2NUBEM[N-UBEM cooling demand]:::group
+    G2REOPT[ReOpt energy supply]:::group
+    G2ENV[Shelter cooling envelope<br/>+ emissions intensity]:::group
+  end
+
+  subgraph G3[Urban Digital Twins — synthesis and decision layer]
+    G3ING[Ingestion + schema validators]:::group
+    G3WORLD[World-state model<br/>Mesa + Shapely]:::group
+    G3POL[Policy<br/>baseline / reactive / proactive]:::group
+    G3METRIC[Six-metric collector]:::group
+    G3PROV[(Provenance log<br/>JSONL)]:::store
+    G3VIZ[Folium map + Plotly charts<br/>+ Streamlit dashboard]:::group
+  end
+
+  subgraph S2[Stage Two — high-fidelity twin]
+    OMNI[NVIDIA Omniverse Kit]:::stage2
+    ISAAC[NVIDIA Isaac Sim]:::stage2
+    CURA[GT CURA HPC<br/>RTX 4090]:::stage2
+  end
+
+  STAKE[Workshop stakeholders<br/>Perry Yang · Subhro · Sei · group leads]:::ext
+
+  PLATEAU --> G1POP
+  OSM --> ARCGIS
+  ARCGIS -->|SHP / .net.xml| G3WORLD
+  PHASE1 -->|baseline params| G3POL
+
+  G1POP -->|population.csv| G3ING
+  G1HEAT -->|heat_field.npy| G3ING
+  G1OCC -->|occupancy.csv| G3ING
+  G2ENV -->|shelter_envelope.csv| G3ING
+  G2NUBEM -->|cooling_capacity.csv| G3ING
+  G2REOPT -->|emissions_intensity.csv| G3ING
+
+  G3ING --> G3WORLD --> G3POL --> G3METRIC --> G3VIZ
+  G3POL --> G3PROV
+  G3VIZ --> STAKE
+
+  G3METRIC -.->|cooling-gap residuals<br/>exposure hotspots| G1POP
+  G3METRIC -.->|policy stress points| G2ENV
+
+  G3WORLD -.->|Stage Two scene handoff| OMNI
+  OMNI --> ISAAC
+  OMNI --- CURA
+  ISAAC --- CURA
