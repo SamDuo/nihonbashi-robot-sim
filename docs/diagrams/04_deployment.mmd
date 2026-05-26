@@ -1,0 +1,34 @@
+flowchart LR
+  classDef local fill:#fff3b0,stroke:#5a4a00,color:#0a0a0a
+  classDef browser fill:#dfe7fd,stroke:#1a3a8f,color:#0a0a0a
+  classDef hpc fill:#f5e6ff,stroke:#5a1a8f,color:#0a0a0a,stroke-dasharray: 4 3
+  classDef ext fill:#c8e6c9,stroke:#1b5e20,color:#0a0a0a
+
+  subgraph LOCAL[Local dev workstation — Stage One]
+    PY[Python 3.11<br/>Mesa · Shapely · pandas · numpy]:::local
+    FOL[Folium server<br/>:8000]:::local
+    ST[Streamlit dashboard<br/>:8501]:::local
+  end
+
+  subgraph BROW[Stakeholder browser]
+    LEAF[Leaflet map<br/>via Folium HTML]:::browser
+    PLOT[Plotly metric charts]:::browser
+  end
+
+  subgraph CURA[GT CURA HPC — Stage Two]
+    OMNI2[Omniverse Kit · RTX 4090]:::hpc
+    ISAAC2[Isaac Sim]:::hpc
+  end
+
+  subgraph EXT[External producers]
+    G1[Urban Risk outputs]:::ext
+    G2[Urban Regeneration outputs]:::ext
+    ARC[ArcGIS Pro<br/>Yi Tai SHP]:::ext
+  end
+
+  G1 --> PY
+  G2 --> PY
+  ARC --> PY
+  PY --> FOL --> LEAF
+  PY --> ST --> PLOT
+  PY -.->|USD scene handoff| OMNI2 --> ISAAC2

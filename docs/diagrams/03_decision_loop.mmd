@@ -1,0 +1,25 @@
+sequenceDiagram
+  autonumber
+  participant Driver as scripts/run_testbed.py
+  participant Sim as simulator.py
+  participant Load as loaders (pop / heat / shelter)
+  participant World as world state (Mesa)
+  participant Pol as policy
+  participant Met as metrics collector
+  participant Prov as provenance.py
+  participant Viz as visualize.py
+
+  Driver->>Sim: step(hour H, scenario S)
+  Sim->>Load: slice(H)
+  Load-->>Sim: population_H, heat_H, shelter_H
+  Sim->>World: apply_slice(...)
+  loop for each agent
+    World->>Pol: decide(agent, world, S)
+    Pol-->>World: action {stay | route_to_shelter | dispatch}
+    Pol->>Prov: log(agent, action, rationale, latency)
+  end
+  World-->>Sim: state_H
+  Sim->>Met: update(state_H)
+  Met-->>Sim: running metrics
+  Sim->>Viz: emit_frame(H, state_H)
+  Sim-->>Driver: hour H done

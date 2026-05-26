@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Urban Digital Twins. Nihonbashi 3D view.</title>
+<link rel="stylesheet"
+      href="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Widgets/widgets.css">
+<script src="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Cesium.js"></script>
+<style>
+  html, body { margin:0; padding:0; height:100%; font-family: sans-serif; }
+  #cesium { position:absolute; inset:0; }
+  #status {
+    position:fixed; top:8px; right:8px; max-width:360px;
+    background:rgba(0,0,0,0.78); color:white; padding:6px 10px;
+    border-radius:6px; font-size:11px; line-height:1.4; z-index:1000;
+    white-space:pre-line;
+  }
+  .ok  { background: rgba(40,130,40,0.85) !important; }
+  .err { background: rgba(180,40,40,0.90) !important; }
+</style>
+</head>
+<body>
+<div id="cesium"></div>
+<div id="status">Initializing</div>
+
+<script>
+// ---------- params ----------
+const params = new URLSearchParams(window.location.search);
+const SCENARIO = params.get('scenario') || 'proactive';
+const HOUR = parseInt(params.get('hour') || '14', 10);
+const PLATEAU_MODE = params.get('plateau') || 'volumes';  // off | volumes | textured
+
+const PLATEAU_URLS = {
+  volumes:  'https://assets.cms.plateau.reearth.io/assets/4c/f2436a-e2be-40e2-83da-f1781f36e30b/' +
+            '13102_chuo-ku_pref_2023_citygml_1_op_bldg_3dtiles_13102_chuo-ku_lod2_no_texture/tileset.json',
+  textured: 'https://assets.cms.plateau.reearth.io/assets/01/8c112f-4957-409a-9b43-d86308c7b74a/' +
+            '13102_chuo-ku_pref_2023_citygml_1_op_bldg_3dtiles_13102_chuo-ku_lod2/tileset.json'
+};
+const PLATEAU_URL = PLATEAU_URLS[PLATEAU_MODE] || null;
+
+// Nihonbashi neighborhood approximate boundary. Hand drawn polygon that
+// stays inside Chuo ku (east of Sotobori dori) so the Chuo ku PLATEAU
+// tileset can render every tile inside it. Anything west of this would be
+// Chiyoda ku (Marunouchi, Otemachi, Tokyo Station) and needs the Chiyoda
+// tileset to render.
+const NIHONBASHI_BOUNDARY = [
+  [139.7720, 35.6800],  // SW
+  [139.7780, 35.6788],  // S
+  [139.7835, 35.6810],  // SE
+  [139.7840, 35.6855],  // E
+  [139.7800, 35.6890],  // NE
+  [139.7745, 35.6895],  // N
+  [139.7710, 35.6860],  // NW
+];
+
+const STATUS = document.getElementById('status');
+function setStatus(msg, cls) {
+  STATUS.textContent = msg;
+  STATUS.className = cls || '';
+  console.log('[twin]', msg);
+}
+
+// ---------- CSV ----------
+function parseCsv(text) {
+  const lines = text.trim().split(/\r?\n/);
+  const hdr = lines[0].split(',');
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const parts = lines[i].split(',');
+    const r = {};
+    for (let j = 0; j < hdr.length; j++) r[hdr[j]] = parts[j];
+    rows.push(r);
+  }
+  return rows;
+}
+
+(async () => {
+  try {
+    setStatus(`Loading shelter data. scenario=${SCENARIO}, hour=${HOUR}.`);
+    const sheltersJson = await fetch(`/geo/shelters_${SCENARIO}.geojson`).then(r => r.json());
+    setStatus(`Loaded ${sheltersJson.features.length} shelters.`);
+
+    // PLATEAU public Cesium Ion access token, published by Project PLATEAU
+    // for use with their Cesium Ion assets including 3258112 (PLATEAU
+    // Terrain) and the Japan 3D Buildings layers. Source: MLIT streaming
+    // tutorial. Do not use this token for unrelated assets.
+    Cesium.Ion.defaultAccessToken =
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJiODVhMmQ5OS1hOWZjLTQ3YmYtODlmNi1lNWUwY2MwOGUxYTMiLCJpZCI6MTQ5ODk3LCJpYXQiOjE2ODc5MzQ3NDN9.OG0mc3i7ZxGwHQjlMv3TRjiOvKWpzxglxmJRaUIykTY';
+
+    setStatus('Loading PLATEAU terrain');
+    let terrainProvider;
+    try {
+      terrainProvider = await Cesium.CesiumTerrainProvider.fromIonAssetId(3258112);
+    } catch (terrErr) {
+      console.warn('PLATEAU terrain failed, falling back to flat ellipsoid', terrErr);
+      terrainProvider = new Cesium.EllipsoidTerrainProvider();
+    }
+
+    const baseLayer = new Cesium.ImageryLayer(new Cesium.OpenStreetMapImageryProvider({
+      url: 'https://tile.openstreetmap.org/'
+    }));
+    setStatus('Constructing viewer');
+    const viewer = new Cesium.Viewer('cesium', {
+      baseLayer,
+      terrainProvider,
+      baseLayerPicker: false, geocoder: false, homeButton: false,
+      sceneModePicker: false, navigationHelpButton: false,
+      timeline: true, animation: true, fullscreenButton: false,
+      infoBox: true, selectionIndicator: true
+    });
+    viewer.clockViewModel.shouldAnimate = true;
+    viewer.scene.skyBox = undefined;
+    viewer.scene.skyAtmosphere = undefined;
+
+    viewer.camera.setView({
+      destination: Cesium.Cartesian3.fromDegrees(139.7775, 35.6800, 1900),
+      orientation: {
+        heading: Cesium.Math.toRadians(5),
+        pitch:   Cesium.Math.toRadians(-55),
+        roll:    0
+      }
+    });
+
+    // Draw the Nihonbashi boundary as a faint outline.
+    const boundaryFlat = [];
+    NIHONBASHI_BOUNDARY.forEach(([lng, lat]) => { boundaryFlat.push(lng); boundaryFlat.push(lat); });
+    viewer.entities.add({
+      name: 'Nihonbashi boundary',
+      polyline: {
+        positions: Cesium.Cartesian3.fromDegreesArray(boundaryFlat.concat([
+          NIHONBASHI_BOUNDARY[0][0], NIHONBASHI_BOUNDARY[0][1]
+        ])),
+        width: 3,
+        material: Cesium.Color.fromCssColorString('#1a3a8f').withAlpha(0.6),
+        clampToGround: true
+      }
+    });
+
+    if (PLATEAU_URL) {
+      setStatus('Loading PLATEAU buildings');
+      const tileset = await Cesium.Cesium3DTileset.fromUrl(PLATEAU_URL, {
+        maximumScreenSpaceError: 24
+      });
+      viewer.scene.primitives.add(tileset);
+      // Note: deliberately NOT calling viewer.zoomTo(tileset) here.
+      // That would override the Nihonbashi setView with the full Chuo ku
+      // tileset center, which is far south of our study area.
+      // Buildings appear slightly elevated because PLATEAU references MSL
+      // and we have no terrain DEM loaded. Stage Two will add the PLATEAU
+      // DEM to remove the offset cleanly. See docs/stage2_data_requirements.md.
+
+      // Clip PLATEAU to the Nihonbashi polygon. Requires Cesium 1.116+.
+      try {
+        if (Cesium.ClippingPolygon && Cesium.ClippingPolygonCollection) {
+          tileset.clippingPolygons = new Cesium.ClippingPolygonCollection({
+            polygons: [
+              new Cesium.ClippingPolygon({
+                positions: Cesium.Cartesian3.fromDegreesArray(boundaryFlat)
+              })
+            ],
+            inverse: true   // keep what is INSIDE the polygon; clip outside
+          });
+          setStatus('PLATEAU clipped to Nihonbashi. Streaming tiles.', 'ok');
+        } else {
+          setStatus('Cesium too old for clippingPolygons. Showing full Chuo ku.', 'ok');
+        }
+      } catch (clipErr) {
+        console.warn('clipping failed', clipErr);
+        setStatus('Clipping not available. Showing full Chuo ku.', 'ok');
+      }
+
+      tileset.allTilesLoaded.addEventListener(() => {
+        setStatus('PLATEAU ready. Loading agent animation.', 'ok');
+      });
+      tileset.tileFailed.addEventListener(e => {
+        console.warn('tile failed', e);
+      });
+    } else {
+      setStatus('PLATEAU disabled. OSM only.', 'ok');
+    }
+
+    // Shelter polygons
+    sheltersJson.features.forEach(f => {
+      const flat = [];
+      f.geometry.coordinates[0].forEach(([lng, lat]) => { flat.push(lng); flat.push(lat); });
+      const occ = f.properties.current_occupants_by_hour[String(HOUR)] || 0;
+      const cap = f.properties.max_occupants_by_hour[String(HOUR)] || 1;
+      const util = cap > 0 ? occ / cap : 0;
+      const height = 6 + 0.6 * occ;
+      const r = Math.round(26 + 200 * util);
+      const g = Math.round(152 - 80 * util);
+      const b = Math.round(80 - 60 * util);
+      viewer.entities.add({
+        name: f.properties.building_id,
+        description: 'Building ' + f.properties.building_id +
+                     '. Occupancy ' + occ + ' of ' + cap + '.',
+        polygon: {
+          hierarchy: Cesium.Cartesian3.fromDegreesArray(flat),
+          material: Cesium.Color.fromBytes(r, g, b, 230),
+          height: 0,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          extrudedHeight: height,
+          extrudedHeightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+          outline: true,
+          outlineColor: Cesium.Color.fromCssColorString('#0e3b14')
+        }
+      });
+    });
+
+    // Time animated agents from CZML (routed along OSM walking network).
+    setStatus('Loading agent animation');
+    try {
+      const czmlSource = await Cesium.CzmlDataSource.load(`/timeseries/agents_${SCENARIO}.czml`);
+      viewer.dataSources.add(czmlSource);
+      // Jump the clock to the requested hour for the initial frame.
+      const startSeconds = HOUR * 3600;
+      viewer.clock.currentTime = Cesium.JulianDate.addSeconds(
+        Cesium.JulianDate.fromIso8601('2026-05-25T00:00:00Z'),
+        startSeconds,
+        new Cesium.JulianDate()
+      );
+      viewer.clockViewModel.shouldAnimate = true;
+      setStatus('Playback ready. Press play in the bottom left widget.', 'ok');
+    } catch (czmlErr) {
+      setStatus('CZML failed. ' + (czmlErr.message || czmlErr), 'err');
+      console.error(czmlErr);
+    }
+
+  } catch (err) {
+    setStatus('Error. ' + (err.message || err), 'err');
+    console.error(err);
+  }
+})();
+</script>
+</body>
+</html>
