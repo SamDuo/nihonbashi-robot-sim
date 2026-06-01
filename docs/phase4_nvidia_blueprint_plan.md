@@ -2,10 +2,60 @@
 
 | | |
 |---|---|
-| **Print revision** | v0.1 — 2026-06-01 |
+| **Print revision** | v0.2 — 2026-06-01 |
 | **Status** | Draft for review |
 | **Companion docs** | [methodology.md](methodology.md) · [system_architecture.md](system_architecture.md) · [stage2_data_requirements.md](stage2_data_requirements.md) |
 | **References** | [Blueprint Introduction](https://docs.nvidia.com/vss/3.1.0/smartcity-docs/Introduction.html) · [Development Workflow](https://docs.nvidia.com/vss/3.1.0/smartcity-docs/Smartcity-Development-Workflow.html) · [Deep Dive](https://docs.nvidia.com/vss/3.1.0/smartcity-docs/Blueprint-deep-dive.html) · [Prerequisites](https://docs.nvidia.com/vss/3.1.0/smartcity-docs/Prerequisites.html) |
+
+---
+
+## 0. Omniverse ↔ Metropolis — how the two stacks connect
+
+Omniverse builds the **virtual world**; Metropolis (which the Smart City AI Blueprint sits inside) perceives and acts on the **real world**. They are upstream and downstream of each other in our pipeline.
+
+```mermaid
+flowchart LR
+  classDef omni fill:#76b900,stroke:#2e4a00,color:#0a0a0a,stroke-width:1.5px
+  classDef metro fill:#1a73e8,stroke:#062b6f,color:#ffffff,stroke-width:1.5px
+  classDef bridge fill:#fff3b0,stroke:#5a4a00,color:#1a1a1a
+  classDef real fill:#e8f5e9,stroke:#1b5e20,color:#1a1a1a
+
+  subgraph OMNI[NVIDIA Omniverse · sim-to-real · Phase 4 authoring]
+    USD[OpenUSD scene<br/>PLATEAU Chuo-ku LOD2]:::omni
+    KIT[Omniverse Kit<br/>RTX path tracing]:::omni
+    ISAAC[Isaac Sim + Isaac Lab<br/>robot + sensors + RL]:::omni
+    SCEN[Scripted heat scenarios<br/>cool / warm / extreme]:::omni
+  end
+
+  subgraph BRIDGE[Bridge · synthetic data generation]
+    COSMOS[Cosmos-Transfer 2.5<br/>photoreal upscaling]:::bridge
+    LABELS[Auto-labels<br/>pedestrian posture · heat zone]:::bridge
+    TAO[TAO Toolkit<br/>fine-tune RT-DETR]:::bridge
+  end
+
+  subgraph METRO[NVIDIA Metropolis · real-to-decision · Phase 5-6 deploy]
+    RTVI[RTVI microservice<br/>RT-DETR + NvDCF tracker]:::metro
+    BA[Behavior Analytics<br/>custom heat anomalies]:::metro
+    VLM[Cosmos Reason 2 8B<br/>alert verification]:::metro
+    AGENT[Nemotron Nano 9B v2<br/>MCP agent + tools]:::metro
+    DASH[Operator dashboard<br/>PLATEAU 2D + Cesium 3D]:::metro
+  end
+
+  subgraph REAL[Nihonbashi · real-world deployment]
+    CAMS[Camera mesh + IoT<br/>thermal · pedestrian]:::real
+    ROBOT[Heat-Support Robot<br/>physical fleet]:::real
+  end
+
+  USD --> KIT --> SCEN
+  ISAAC --> SCEN
+  SCEN --> COSMOS --> LABELS --> TAO
+  TAO --> RTVI
+  CAMS --> RTVI --> BA --> VLM --> AGENT --> DASH
+  AGENT --> ROBOT
+  ROBOT --> CAMS
+```
+
+**Rule of thumb:** if it has a USD file or runs on a workstation GPU, it's Omniverse. If it has a camera feed or runs as a Docker Compose service, it's Metropolis. The Smart City AI Blueprint is a curated Metropolis reference application.
 
 ---
 
@@ -116,6 +166,54 @@ Raleigh's canonical use case is real-time traffic-incident alerts. Nihonbashi su
 
 ---
 
-## 8. Decision log
+## 8. Phase 1-3 standing and post-demo plan
+
+The Streamlit + Cesium demo is a runnable **end-to-end skeleton**, not finished Phase 1-3 work. Honest status per phase:
+
+| Phase | Deliverable | Status | Gap |
+|---|---|---|---|
+| 1 | `data/robot_params/starship_baseline.csv` (Starship parameter abstraction) | ✅ done | — |
+| 1 | 200 m Nihonbashi SUMO scene at `sim/sumo/nihonbashi_200m/` | ❌ not built | Yi Tai owns; needs OSM clip + SUMO net + heat-cost edge attributes |
+| 1 | 600+ baseline runs (4 heat × 3 traffic × ≥50 replicates) at `sim/runs/phase1_baseline/` | ❌ not run | Blocked on SUMO scene |
+| 1 | Ranked friction-point list at `docs/phase1_friction_points.md` | ❌ not generated | Auto-generated from runs; blocked on previous |
+| 1 | Real heat-risk layer from parent Tokyo Studio Random Forest classifier | ❌ synthetic stand-in | Pull from parent repo per `phase1_baseline.md` §4 |
+| 2 | `data/robot_params/variable_matrix.csv` — proposal_v1 column | ✅ done (17 rows) | proposal_v2 / v3 columns empty |
+| 2 | Concept renders at `design/concept/` | ❌ empty | Xilin owns |
+| 2 | CAD models at `design/cad/` | ❌ empty | Xilin owns; gated on Phase 4 |
+| 3 | A/B simulation across baseline / reactive / proactive (six metrics) | ✅ runs in Mesa testbed | Mesa-only — SUMO traffic layer not joined |
+| 3 | Iterative loop back to Phase 2 (residuals → v2 design) | ❌ not closed | Need at least one full iteration to declare Phase 3 done |
+
+**Honest read:** the demo proves the **pipeline works** with synthetic data. The **research result** (does the proposed robot reduce heat exposure in *real* Nihonbashi data) is still pending. Phase 1-3 are ~40-50% complete on the *deliverable* axis, even though the *infrastructure* is 100% done.
+
+### Post-demo plan — three tracks running in parallel
+
+**Track A · Close Phase 1-3 with real data** (Sam + Yi + Qinghao, 2-3 weeks)
+
+1. Pull Qinghao's hourly heat-cost raster from the parent Tokyo Studio repo; swap `sim/testbed/heat_field.py` to load it (schema is locked in `system_architecture.md` §7a, no code change needed beyond the loader).
+2. Yi builds the 200 m SUMO scene at `sim/sumo/nihonbashi_200m/`; bridge SUMO ↔ Mesa testbed.
+3. Run the 600+ replicate baseline; auto-generate `docs/phase1_friction_points.md`.
+4. Murugesan's N-UBEM cooling envelope → `sim/testbed/shelter_model.py` (same locked schema).
+5. One iteration of the loop: feed friction points into Phase 2; Xilin produces proposal_v2 column + concept renders; re-run Phase 3.
+
+**Track B · Phase 4 setup in parallel** (Sam, 1-2 weeks)
+
+1. PACE Phoenix allocation application (H100 hours, ~500 GPU-h).
+2. NVIDIA LaunchPad academic access for Smart City Blueprint Launchable.
+3. Author 3 Omniverse Nihonbashi scenes (cool / warm / extreme) anchored on PLATEAU Chuo-ku; do not wait for Phase 1-3 finalization.
+
+**Track C · Demo polish for stakeholder reviews** (Sam, 1 week, lightweight)
+
+1. README + system_architecture diagram pass (this PR).
+2. Pre-record a 3-min demo video showing Streamlit dashboard + Cesium playback walk-through; embed in the proposal deck.
+3. Lock the Stage One review date with Perry's team.
+
+### Decision gate before Phase 4 starts in earnest
+
+Don't fire Phase 4 GPU hours until **at least one closed Phase 1→2→3 iteration with real data** lands. Without that, Phase 4 (AI + CAD optimization) has nothing meaningful to optimize against — you'd be retraining a CV model on a robot design that hasn't been validated against real Nihonbashi behavior yet.
+
+---
+
+## 9. Decision log
 
 - **2026-06-01** — Reviewed VSS 3.1.0 Smart City Blueprint docs. Decision: adopt as Phase 5–6 substrate, not Phase 4. PACE for training; LaunchPad/cloud for deploy. RTX 4090 plan downgraded to Omniverse authoring only. (Rationale: Blueprint validated GPUs are H100/L40S/RTX PRO 6000; PACE forbids Docker.)
+- **2026-06-01** — Added Omniverse ↔ Metropolis diagram and Phase 1-3 honest status table. Decision gate set: do not fire Phase 4 GPU hours until one closed Phase 1→2→3 iteration with real data lands.
