@@ -242,7 +242,7 @@ flowchart LR
     B2[Urban Risk synthetic-population engine output]:::s2
     B3[Urban Risk hourly raster from sensors / model]:::s2
     B4[Urban Regeneration N-UBEM + ReOpt output]:::s2
-    B5[LLM-driven agentic planner]:::s2
+    B5[LLM-authored constraints<br/>+ NVIDIA cuOpt routing solver]:::s2
     B6[Mesa ABM + SUMO microsim co-sim]:::s2
     B7[NVIDIA Omniverse twin + Isaac Sim]:::s2
   end
@@ -304,7 +304,7 @@ flowchart LR
 | `population.py` | Agent loader + synth generator | pandas + numpy | reads Urban Risk engine output |
 | `heat_field.py` | Heat-cost grid | numpy | xarray + rasterio on Urban Risk raster |
 | `shelter_model.py` | Envelope + feasibility | pandas | reads Urban Regeneration N-UBEM/ReOpt output |
-| `policy.py` | Three policies | rule-based | LLM-driven agentic planner |
+| `policy.py` | Three policies | rule-based | LLM-authored constraints + **NVIDIA cuOpt routing solver** (GPU vehicle-routing with time windows, vulnerability-weighted priorities, heat-cost edge weights) |
 | `simulator.py` | Step loop | Mesa scheduler | Mesa + traci (SUMO) |
 | `metrics.py` | Six + twin metrics | numpy + pandas | unchanged |
 | `provenance.py` | Decision log | JSONL | unchanged |
@@ -324,7 +324,7 @@ Every module raises on missing/bad schema fields. No silent fallbacks.
 | Population | numpy / pandas synth | Urban Risk synthetic-population engine |
 | Heat field | numpy | xarray + rasterio on Urban Risk raster |
 | Cooling envelope | piecewise-constant | Urban Regeneration N-UBEM + ReOpt |
-| Policy | threshold rule | LLM-driven agentic planner |
+| Policy | threshold rule | LLM-authored constraints → **NVIDIA cuOpt** routing solver (see [cuopt_integration_plan.md](cuopt_integration_plan.md)) |
 | Visualization | Folium + Plotly + Streamlit | NVIDIA Omniverse Kit |
 | Robot validation | (none) | NVIDIA Isaac Sim |
 | Compute | local Python | GT CURA HPC (RTX 4090) |
