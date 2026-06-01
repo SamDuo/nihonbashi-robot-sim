@@ -280,6 +280,27 @@ def list_shelters() -> dict[str, Any]:
 # When `mcp_server.py` is added (Stage Two), it iterates this dict to
 # auto-register each function as an MCP tool. Until then, importable directly.
 
+# Lazy import so the cuOpt branch only loads when needed.
+def _preview_vrptw(hour: int = 14, fleet_size: int = 5, num_agents: int = 200) -> dict[str, Any]:
+    """Build the Stage Two VRPTW input for cuOpt at the given hour.
+
+    Inspection-only: does not invoke the solver (which requires cuOpt to be
+    installed). Use to verify what the proactive AV-dispatch branch would
+    hand to cuOpt at any hour. See docs/cuopt_integration_plan.md.
+
+    Args:
+        hour: 0..23.
+        fleet_size: number of AVs to plan with.
+        num_agents: population size to build.
+
+    Returns:
+        VRPTWInput as a JSON-friendly dict (vehicles, orders, edge_costs,
+        shelter_capacity, solver_config).
+    """
+    from .cuopt_formulator import preview_vrptw_input
+    return preview_vrptw_input(hour=hour, fleet_size=fleet_size, num_agents=num_agents)
+
+
 TOOLS = {
     "list_scenarios": list_scenarios,
     "list_shelters": list_shelters,
@@ -287,4 +308,5 @@ TOOLS = {
     "get_policy_decision": get_policy_decision,
     "run_full_simulation": run_full_simulation,
     "compare_all_scenarios": compare_all_scenarios,
+    "preview_vrptw_for_cuopt": _preview_vrptw,
 }
