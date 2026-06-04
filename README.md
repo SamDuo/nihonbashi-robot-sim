@@ -2,7 +2,21 @@
 
 Urban digital twin for heat-risk-aware service robots in Nihonbashi, Tokyo.
 
-This repository covers **Phases 1–3** of the six-stage research methodology: baseline ABM testing of an existing product (Starship), conceptual design of the Nihonbashi Heat-Support Robot, and a first SUMO/ABM A/B simulation cycle with iterative feedback. Phases 4–6 (AI + CAD optimization, re-validation, Omniverse / Isaac Sim high-fidelity validation) are tracked here but executed in a downstream repository once Phase 3 converges.
+This repository covers **Phases 1–3** of the six-stage research methodology: baseline ABM testing of an existing product (Starship), conceptual design of the Nihonbashi Heat-Support Robot, and a first SUMO/ABM A/B simulation cycle with iterative feedback. Phases 4–6 (AI + CAD optimization, re-validation, Omniverse / Isaac Sim + NVIDIA Smart City AI Blueprint deploy) are planned in [docs/phase4_nvidia_blueprint_plan.md](docs/phase4_nvidia_blueprint_plan.md) and executed in a downstream environment once Phase 3 converges.
+
+---
+
+## Standing
+
+| Stage | Status | Artifacts |
+|---|---|---|
+| Stage One testbed (Mesa + Shapely + OSM walking network) | ✅ Runnable end-to-end | [sim/testbed/](sim/testbed/), [scripts/run_testbed.py](scripts/run_testbed.py) |
+| Streamlit dashboard + PLATEAU Cesium twin | ✅ Runnable locally | [analysis/dashboard.py](analysis/dashboard.py), [outputs/cesium_view.html](outputs/cesium_view.html), [scripts/serve_outputs.py](scripts/serve_outputs.py) |
+| Six-metric A/B comparison (baseline / reactive / proactive) | ✅ Synthetic data; ready for real G1/G2 swap | Regenerated into `outputs/timeseries/metrics.csv` |
+| System architecture v0.3 + Mermaid diagrams | ✅ Stage One review locked | [docs/system_architecture.md](docs/system_architecture.md), [docs/diagrams/](docs/diagrams/) |
+| Phase 4–6 plan (NVIDIA Smart City AI Blueprint mapping) | 🟡 Draft for review | [docs/phase4_nvidia_blueprint_plan.md](docs/phase4_nvidia_blueprint_plan.md) |
+| Phase 4 — Omniverse / Cosmos-Transfer rendering + TAO training | ⬜ Pending PACE allocation + LaunchPad access | — |
+| Phase 5–6 — Blueprint deploy (RTVI + Behavior Analytics + agents) | ⬜ Pending Phase 4 outputs | — |
 
 ---
 
@@ -42,14 +56,26 @@ See `docs/methodology.md` for the six-stage workflow and `CONTRIBUTING.md` for b
 ## Quick start
 
 ```powershell
-git clone <repo-url>
+git clone https://github.com/SamDuo/nihonbashi-robot-sim.git
 cd nihonbashi-robot-sim
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-Then read `docs/phase1_baseline.md` to see the current run protocol.
+Run the Stage One Mesa testbed and serve the Streamlit / Cesium digital twin:
+
+```powershell
+python scripts/run_testbed.py             # writes outputs/ (CZML, geojson, metrics)
+python scripts/serve_outputs.py           # CORS server on :8889 (Cesium twin)
+python -m streamlit run analysis/dashboard.py    # dashboard on :8501
+```
+
+Then open `http://localhost:8501` for the dashboard, or hit the Cesium twin directly at
+`http://localhost:8889/cesium_view.html?scenario=proactive&hour=14&plateau=volumes`.
+
+See `docs/phase1_baseline.md` for the run protocol, `docs/methodology.md` for the six-stage workflow,
+and `docs/phase4_nvidia_blueprint_plan.md` for the Phase 4–6 deployment plan.
 
 ---
 
