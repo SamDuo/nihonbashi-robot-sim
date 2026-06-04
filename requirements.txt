@@ -35,3 +35,4 @@ streamlit>=1.36
 ruff>=0.6
 nbstripout>=0.7
 python-dotenv>=1.0
+pytest>=8.0
