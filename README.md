@@ -12,6 +12,7 @@ This repository covers **Phases 1–3** of the six-stage research methodology: b
 |---|---|---|
 | Stage One testbed (Mesa + Shapely + OSM walking network) | ✅ Runnable end-to-end | [sim/testbed/](sim/testbed/), [scripts/run_testbed.py](scripts/run_testbed.py) |
 | Streamlit dashboard + PLATEAU Cesium twin | ✅ Runnable locally | [analysis/dashboard.py](analysis/dashboard.py), [outputs/cesium_view.html](outputs/cesium_view.html), [scripts/serve_outputs.py](scripts/serve_outputs.py) |
+| High-fidelity WebGL twin (L2: day/night, heat overlay, detection HUD) | ✅ Runnable locally (testbed data) | [outputs/twin_view.html](outputs/twin_view.html), [scripts/export_twin_frames.py](scripts/export_twin_frames.py), [docs/high_fidelity_twin_architecture.md](docs/high_fidelity_twin_architecture.md) |
 | Six-metric A/B comparison (baseline / reactive / proactive) | ✅ Synthetic data; ready for real G1/G2 swap | Regenerated into `outputs/timeseries/metrics.csv` |
 | System architecture v0.3 + Mermaid diagrams | ✅ Stage One review locked | [docs/system_architecture.md](docs/system_architecture.md), [docs/diagrams/](docs/diagrams/) |
 | Phase 4–6 plan (NVIDIA Smart City AI Blueprint mapping) | 🟡 Draft for review | [docs/phase4_nvidia_blueprint_plan.md](docs/phase4_nvidia_blueprint_plan.md) |
@@ -67,12 +68,15 @@ Run the Stage One Mesa testbed and serve the Streamlit / Cesium digital twin:
 
 ```powershell
 python scripts/run_testbed.py             # writes outputs/ (CZML, geojson, metrics)
-python scripts/serve_outputs.py           # CORS server on :8889 (Cesium twin)
+python scripts/export_twin_frames.py      # writes outputs/twin/ (WebGL twin data)
+python scripts/serve_outputs.py           # CORS server on :8889 (Cesium + WebGL twins)
 python -m streamlit run analysis/dashboard.py    # dashboard on :8501
 ```
 
-Then open `http://localhost:8501` for the dashboard, or hit the Cesium twin directly at
-`http://localhost:8889/cesium_view.html?scenario=proactive&hour=14&plateau=volumes`.
+Then open `http://localhost:8501` for the dashboard, hit the Cesium twin at
+`http://localhost:8889/cesium_view.html?scenario=proactive&hour=14&plateau=volumes`,
+or the high-fidelity WebGL twin at
+`http://localhost:8889/twin_view.html?scenario=proactive&hour=13`.
 
 See `docs/phase1_baseline.md` for the run protocol, `docs/methodology.md` for the six-stage workflow,
 and `docs/phase4_nvidia_blueprint_plan.md` for the Phase 4–6 deployment plan.
