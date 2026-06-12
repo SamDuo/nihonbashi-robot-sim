@@ -62,16 +62,17 @@ def cell_to_m(cx: float, cy: float) -> tuple[float, float]:
 
 
 def build_roads() -> list[dict]:
+    """Procedural fallback roads, in the same polyline contract as OSM roads."""
     roads = []
     # Main avenue across the full 1000 m extent.
-    roads.append({"x0": 0.0, "z0": AVENUE_Y * CELL_M, "x1": GRID_W * CELL_M,
-                  "z1": AVENUE_Y * CELL_M, "w": 22.0, "kind": "avenue"})
+    roads.append({"pts": [[0.0, AVENUE_Y * CELL_M], [GRID_W * CELL_M, AVENUE_Y * CELL_M]],
+                  "w": 22.0, "cls": "primary", "name": "avenue", "bridge": 0})
     for y in RING_ROADS_Y:
-        roads.append({"x0": 0.0, "z0": y * CELL_M, "x1": GRID_W * CELL_M,
-                      "z1": y * CELL_M, "w": 14.0, "kind": "street"})
+        roads.append({"pts": [[0.0, y * CELL_M], [GRID_W * CELL_M, y * CELL_M]],
+                      "w": 14.0, "cls": "secondary", "name": "", "bridge": 0})
     for x in CROSS_STREET_XS:
-        roads.append({"x0": x * CELL_M, "z0": 0.0, "x1": x * CELL_M,
-                      "z1": GRID_H * CELL_M, "w": 14.0, "kind": "street"})
+        roads.append({"pts": [[x * CELL_M, 0.0], [x * CELL_M, GRID_H * CELL_M]],
+                      "w": 14.0, "cls": "secondary", "name": "", "bridge": 0})
     return roads
 
 
@@ -114,9 +115,13 @@ def build_buildings(rng: random.Random) -> list[dict]:
                     base = 10 + 55 * center_bias * rng.random() + 45 * avenue_bias * rng.random()
                     h = round(min(95.0, max(8.0, rng.gauss(base, 9.0))), 1)
                     kind = "tower" if h > 55 else ("midrise" if h > 22 else "lowrise")
-                    buildings.append({"x": round(x, 1), "z": round(z, 1),
-                                      "w": round(w, 1), "d": round(d, 1),
-                                      "h": h, "kind": kind})
+                    buildings.append({
+                        "poly": [[round(x, 1), round(z, 1)],
+                                 [round(x + w, 1), round(z, 1)],
+                                 [round(x + w, 1), round(z + d, 1)],
+                                 [round(x, 1), round(z + d, 1)]],
+                        "h": h, "kind": kind, "src": "procedural", "in": 1,
+                    })
     return buildings
 
 
@@ -253,6 +258,14 @@ def export_scenario(scenario: str, agents: dict[str, list], profiles: dict,
           f"({len(agent_payload)} agents, {NUM_ROBOTS} robots)")
 
 
+def load_real_geometry() -> dict | None:
+    """OSM-derived district geometry from scripts/build_city_geometry.py."""
+    path = ROOT / "data" / "network" / "nihonbashi_geometry.json"
+    if not path.exists():
+        return None
+    return json.loads(path.read_text())
+
+
 def main() -> None:
     TWIN_DIR.mkdir(parents=True, exist_ok=True)
     rng = random.Random(17)
@@ -266,13 +279,35 @@ def main() -> None:
         "grid": {"w": GRID_W, "h": GRID_H, "cell_m": CELL_M,
                  "anchor_lat": ANCHOR_LAT, "anchor_lng": ANCHOR_LNG},
         "extent_m": [GRID_W * CELL_M, GRID_H * CELL_M],
-        "roads": build_roads(),
-        "buildings": build_buildings(rng),
         "shelters": shelters,
         "avenue_y": AVENUE_Y,
     }
-    (TWIN_DIR / "scene.json").write_text(json.dumps(scene, separators=(",", ":")))
-    print(f"  wrote outputs/twin/scene.json ({len(scene['buildings'])} buildings)")
+    real = load_real_geometry()
+    if real is not None:
+        scene.update({
+            "geometry_source": "osm",
+            "attribution": real["meta"]["source"],
+            "machi": [m["name"] for m in real["meta"]["machi"]],
+            "height_sources": real["meta"]["height_sources"],
+            "boundary": real["boundary"],
+            "buildings": real["buildings"],
+            "roads": real["roads"],
+            "water": real["water"],
+        })
+    else:
+        ext = [GRID_W * CELL_M, GRID_H * CELL_M]
+        scene.update({
+            "geometry_source": "procedural",
+            "boundary": {"poly": [[0, 0], [ext[0], 0], ext, [0, ext[1]]],
+                         "bbox": [0, 0, ext[0], ext[1]]},
+            "buildings": build_buildings(rng),
+            "roads": build_roads(),
+            "water": [],
+        })
+    (TWIN_DIR / "scene.json").write_text(
+        json.dumps(scene, separators=(",", ":"), ensure_ascii=False))
+    print(f"  wrote outputs/twin/scene.json ({scene['geometry_source']} geometry, "
+          f"{len(scene['buildings'])} buildings)")
 
     heat = build_heat_field()
     agents_by_scenario = load_agents_csv()

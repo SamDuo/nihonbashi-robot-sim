@@ -12,7 +12,7 @@ This repository covers **Phases 1–3** of the six-stage research methodology: b
 |---|---|---|
 | Stage One testbed (Mesa + Shapely + OSM walking network) | ✅ Runnable end-to-end | [sim/testbed/](sim/testbed/), [scripts/run_testbed.py](scripts/run_testbed.py) |
 | Streamlit dashboard + PLATEAU Cesium twin | ✅ Runnable locally | [analysis/dashboard.py](analysis/dashboard.py), [outputs/cesium_view.html](outputs/cesium_view.html), [scripts/serve_outputs.py](scripts/serve_outputs.py) |
-| High-fidelity WebGL twin (L2: day/night, heat overlay, detection HUD) | ✅ Runnable locally (testbed data) | [outputs/twin_view.html](outputs/twin_view.html), [scripts/export_twin_frames.py](scripts/export_twin_frames.py), [docs/high_fidelity_twin_architecture.md](docs/high_fidelity_twin_architecture.md) |
+| High-fidelity WebGL twin (L2: real OSM district geometry, day/night, heat overlay, detection HUD) | ✅ Runnable locally (testbed sim data) | [outputs/twin_view.html](outputs/twin_view.html), [scripts/build_city_geometry.py](scripts/build_city_geometry.py), [scripts/export_twin_frames.py](scripts/export_twin_frames.py), [docs/high_fidelity_twin_architecture.md](docs/high_fidelity_twin_architecture.md) |
 | Six-metric A/B comparison (baseline / reactive / proactive) | ✅ Synthetic data; ready for real G1/G2 swap | Regenerated into `outputs/timeseries/metrics.csv` |
 | System architecture v0.3 + Mermaid diagrams | ✅ Stage One review locked | [docs/system_architecture.md](docs/system_architecture.md), [docs/diagrams/](docs/diagrams/) |
 | Phase 4–6 plan (NVIDIA Smart City AI Blueprint mapping) | 🟡 Draft for review | [docs/phase4_nvidia_blueprint_plan.md](docs/phase4_nvidia_blueprint_plan.md) |

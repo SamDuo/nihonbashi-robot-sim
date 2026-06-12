@@ -151,7 +151,13 @@ python scripts/serve_outputs.py        # CORS server on :8889
 # open http://localhost:8889/twin_view.html?scenario=proactive&hour=13
 ```
 
-**Renderer features (all data-driven):** procedural Nihonbashi-scale blocks (1000 m × 500 m, avenue on the hot pedestrian row y=5); full day/night cycle (sun arc, sky keyframes incl. dusk, emissive windows, streetlights); hourly heat field as ground color ramp + THERM false-color mode; 100 pedestrians (instanced, status-colored: home/activity/**sheltering**/transit) + 6 support robots; detection-box/track-ID/confidence HUD with world-space trails; shelter occupancy labels + capacity bars; scenario switcher, hour scrubber, speed control, auto-orbit.
+**Real district geometry (V2 geometric step, included):**
+
+```bash
+python scripts/build_city_geometry.py   # once; result committed to data/network/
+```
+
+**Renderer features (all data-driven):** real Nihonbashi district — the official machi-union boundary (rendered as a light wall + ground outline), 4,160 OSM building footprints extruded with in-shader procedural windows, the classified street network, and the Nihonbashi River, with out-of-district context dimmed; full day/night cycle (sun arc, sky keyframes incl. dusk, lit windows, streetlights sampled along real major roads); hourly heat field as ground color ramp + THERM false-color mode over the sim domain (dashed outline marks it); 100 pedestrians (instanced, status-colored: home/working/**sheltering**) + 6 support robots; detection-box/track-ID/confidence HUD with world-space trails; shelter occupancy labels + capacity bars; scenario switcher, hour scrubber, speed control, auto-orbit, `?cam=` viewpoint override. Falls back to procedural-block geometry when `data/network/nihonbashi_geometry.json` is absent.
 
 **Honesty ledger** (sim truth vs. visual dressing — keep this list current):
 
@@ -162,7 +168,10 @@ python scripts/serve_outputs.py        # CORS server on :8889
 | Shelter occupancy/capacity | Simulation output (geojson) — truth |
 | Robot tasks (busy/idle, pickup cells) | Derived from real `route_to_shelter` / `preposition_to_shelter` provenance decisions |
 | Robot *paths between* cells, agent in-cell jitter, walking bob | Visual interpolation — not simulated |
-| Buildings, roads, streetlights | Procedural placeholder (seeded, deterministic) — replaced by real footprints in V2 |
+| District boundary | **Real**: union of 10 official 日本橋* machi (OSM admin_level=9 relations), selected as the machi the Stage One hand-drawn study area approximated |
+| Building footprints, roads, river | **Real**: OpenStreetMap (ODbL), 4,160 footprints + classified streets + Nihonbashi River, via `scripts/build_city_geometry.py` |
+| Building heights | Mixed: 26 exact `height` tags (incl. the Mitsui towers), 438 from `building:levels` × 3.1 m, 3,696 estimated from footprint area — per-building `src` field records which |
+| Streetlight placement | Stylized: sampled every ~65 m along real major roads — actual lamp positions not surveyed |
 | Detection boxes/confidences | Stylized from ground truth (confidence = f(vulnerability)) — replaced by real model output in Phase 5 |
 
 ---
@@ -172,7 +181,7 @@ python scripts/serve_outputs.py        # CORS server on :8889
 | Version | Theme | Work items | Unblocks |
 |---|---|---|---|
 | **V1 (done)** | Screenshot-grade real-time twin on testbed data | Exporter + renderer + this doc | Stakeholder-facing demo; HUD language for Phase 5 |
-| **V2** | Geometric + thermal fidelity | OSM/PLATEAU footprint → `scene.json` (same contract); G1 raster loader → UTCI/WBGT band labels in HUD; building-shadow shade overlay (sun position already computed per hour); SUMO net → road geometry | Real-geometry twin without renderer changes |
+| **V2** | Geometric + thermal fidelity | ~~OSM footprint + exact machi boundary → `scene.json`~~ **done** (`scripts/build_city_geometry.py`; PLATEAU LOD2 heights remain an upgrade path for the 3,696 estimated heights); G1 raster loader → UTCI/WBGT band labels in HUD; building-shadow shade overlay (sun position already computed per hour); SUMO net → sidewalk-graph agent motion | Real-geometry twin without renderer changes |
 | **V3** | Dynamic + decisional fidelity | Sub-hour trajectories (SUMO/`traci` resampling); cuOpt dispatch plan animation (vehicle routes, pickup ETAs); live mode — WebSocket frame stream from a running sim (Kafka-ready per Phase 5 plan); green-infrastructure/shade-siting scenario layer (paper §4.3) as a second intervention | A/B review of real Phase 3 runs in the twin |
 | **V4** | Phase 4–6 handoff | `scene.json`/`frames` → USD exporter for Omniverse; swap HUD source to RTVI/RT-DETR detections; Cosmos-Transfer renders for synthetic training data | Blueprint deployment continuity |
 

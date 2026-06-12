@@ -74,7 +74,8 @@
 
 <div class="hud chip" id="hud-br">
   simulated + rendered live · stage one testbed data<br/>
-  mesa abm · 3 policies · nihonbashi heat-support robot
+  mesa abm · 3 policies · nihonbashi heat-support robot<br/>
+  <span id="attrib">geometry © OpenStreetMap contributors (ODbL)</span>
 </div>
 
 <div class="hud" id="ctl">
@@ -99,6 +100,7 @@
 <script type="module">
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js";
 
 addEventListener("unhandledrejection", (ev) => {
   const el = document.getElementById("loading");
@@ -138,6 +140,25 @@ const GW = scene3dData.grid.w, GH = scene3dData.grid.h, CELL = scene3dData.grid.
 const EXT_X = GW * CELL, EXT_Z = GH * CELL;
 const worldFromCell = (cx, cy) => [(cx + 0.5) * CELL, (cy + 0.5) * CELL];
 
+// District ground extents (real OSM geometry when present, sim grid otherwise).
+const BND = scene3dData.boundary;
+const PAD = 90;
+const GX0 = BND.bbox[0] - PAD, GZ0 = BND.bbox[1] - PAD;
+const GX1 = BND.bbox[2] + PAD, GZ1 = BND.bbox[3] + PAD;
+const GRD_W = GX1 - GX0, GRD_D = GZ1 - GZ0;
+const CTR_X = (GX0 + GX1) / 2, CTR_Z = (GZ0 + GZ1) / 2;
+const IS_OSM = scene3dData.geometry_source === "osm";
+
+function pointInPoly(x, z, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, zi] = poly[i], [xj, zj] = poly[j];
+    if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi)
+      inside = !inside;
+  }
+  return inside;
+}
+
 // ---------------------------------------------------------------- renderer
 const glCanvas = document.getElementById("gl");
 const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: true });
@@ -146,11 +167,20 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(46, 1, 1, 6000);
-camera.position.set(EXT_X * 0.63, 92, 36);
+camera.position.set(180, 170, 620);   // over the river, looking at the bridge area
 const controls = new OrbitControls(camera, glCanvas);
-controls.target.set(EXT_X * 0.52, 4, EXT_Z * 0.58);
+controls.target.set(EXT_X * 0.42, 4, EXT_Z * 0.58);
+// ?cam=px,py,pz,tx,ty,tz overrides the default viewpoint
+{
+  const cam = (new URLSearchParams(location.search).get("cam") ?? "")
+    .split(",").map(Number);
+  if (cam.length === 6 && cam.every(Number.isFinite)) {
+    camera.position.set(cam[0], cam[1], cam[2]);
+    controls.target.set(cam[3], cam[4], cam[5]);
+  }
+}
 controls.maxPolarAngle = Math.PI * 0.49;
-controls.minDistance = 40; controls.maxDistance = 1800;
+controls.minDistance = 40; controls.maxDistance = 2800;
 controls.enableDamping = true;
 
 const hemi = new THREE.HemisphereLight(0xbfd9ff, 0x141a22, 0.9);
@@ -164,57 +194,92 @@ scene.add(sun, sun.target);
 sun.target.position.set(EXT_X / 2, 0, EXT_Z / 2);
 
 // ---------------------------------------------------------------- ground
+const ROAD_STYLE = {  // [fill, halfLaneDashes]
+  motorway: ["#101318", false], trunk: ["#15181e", true], primary: ["#15181e", true],
+  secondary: ["#171a20", true], tertiary: ["#191c22", false],
+  unclassified: ["#1b1e24", false], residential: ["#1b1e24", false],
+  living_street: ["#1d2026", false], service: ["#1e2127", false],
+  pedestrian: ["#272b33", false], footway: ["#2b2f37", false], cycleway: ["#262a32", false],
+};
+const ROAD_ORDER = ["footway", "cycleway", "pedestrian", "service", "living_street",
+  "residential", "unclassified", "tertiary", "secondary", "primary", "trunk", "motorway"];
+
 function makeGroundTexture() {
   const c = document.createElement("canvas");
-  c.width = 2048; c.height = 1024;
+  const cw = 2800;
+  c.width = cw; c.height = Math.round(cw * GRD_D / GRD_W);
   const g = c.getContext("2d");
-  const sx = c.width / EXT_X, sy = c.height / EXT_Z;
-  g.fillStyle = "#23272e"; g.fillRect(0, 0, c.width, c.height);      // sidewalk base
-  // subtle paving noise
-  for (let i = 0; i < 5000; i++) {
-    g.fillStyle = `rgba(255,255,255,${Math.random() * 0.025})`;
+  const sx = c.width / GRD_W, sy = c.height / GRD_D;
+  const px = (x) => (x - GX0) * sx, pz = (z) => (z - GZ0) * sy;
+  g.fillStyle = "#262a31"; g.fillRect(0, 0, c.width, c.height);      // sidewalk base
+  for (let i = 0; i < 9000; i++) {                                    // paving noise
+    g.fillStyle = `rgba(255,255,255,${Math.random() * 0.02})`;
     g.fillRect(Math.random() * c.width, Math.random() * c.height, 2, 2);
   }
-  // roads
-  for (const r of scene3dData.roads) {
-    g.strokeStyle = "#15171c"; g.lineWidth = r.w * Math.max(sx, sy);
-    g.beginPath(); g.moveTo(r.x0 * sx, r.z0 * sy); g.lineTo(r.x1 * sx, r.z1 * sy); g.stroke();
+  // water (Nihonbashi River)
+  for (const wpoly of scene3dData.water ?? []) {
+    g.fillStyle = "#0b1d2e";
+    g.beginPath();
+    wpoly.poly.forEach(([x, z], i) => i ? g.lineTo(px(x), pz(z)) : g.moveTo(px(x), pz(z)));
+    g.closePath(); g.fill();
+    g.strokeStyle = "rgba(80,160,210,0.25)"; g.lineWidth = 2; g.stroke();
   }
-  // center dashes on the avenue
-  const av = scene3dData.roads.find(r => r.kind === "avenue");
-  if (av) {
-    g.strokeStyle = "rgba(230,210,140,0.55)"; g.lineWidth = 2; g.setLineDash([18, 22]);
-    g.beginPath(); g.moveTo(av.x0 * sx, av.z0 * sy); g.lineTo(av.x1 * sx, av.z1 * sy); g.stroke();
-    g.setLineDash([]);
-    // zebra crosswalks where cross streets meet the avenue
-    const crossXs = scene3dData.roads.filter(r => r.kind === "street" && r.x0 === r.x1).map(r => r.x0);
-    for (const x of crossXs) {
-      for (const side of [-1, 1]) {
-        const cxp = (x + side * 16) * sx, halfW = (av.w / 2 - 2) * sy;
-        g.fillStyle = "rgba(235,235,235,0.8)";
-        for (let k = -halfW; k < halfW; k += 9)
-          g.fillRect(cxp - 5, av.z0 * sy + k, 10, 5);
-      }
-    }
+  // roads by class (minor under major), bridges last with casing
+  const roads = scene3dData.roads ?? [];
+  const drawRoad = (r, casing) => {
+    g.lineCap = "round"; g.lineJoin = "round";
+    g.strokeStyle = casing ? "#070a0f" : (ROAD_STYLE[r.cls]?.[0] ?? "#1b1e24");
+    g.lineWidth = (r.w + (casing ? 3.5 : 0)) * sx;
+    g.beginPath();
+    r.pts.forEach(([x, z], i) => i ? g.lineTo(px(x), pz(z)) : g.moveTo(px(x), pz(z)));
+    g.stroke();
+  };
+  for (const cls of ROAD_ORDER)
+    for (const r of roads) if (!r.bridge && r.cls === cls) drawRoad(r, false);
+  for (const r of roads) if (r.bridge) { drawRoad(r, true); drawRoad(r, false); }
+  // lane dashes on majors
+  g.setLineDash([14, 18]); g.lineWidth = 1.6;
+  g.strokeStyle = "rgba(230,210,140,0.4)";
+  for (const r of roads) {
+    if (!ROAD_STYLE[r.cls]?.[1] || r.bridge) continue;
+    g.beginPath();
+    r.pts.forEach(([x, z], i) => i ? g.lineTo(px(x), pz(z)) : g.moveTo(px(x), pz(z)));
+    g.stroke();
   }
+  g.setLineDash([]);
+  // dim everything outside the district boundary (even-odd fill)
+  g.fillStyle = "rgba(2,4,8,0.42)";
+  g.beginPath();
+  g.rect(0, 0, c.width, c.height);
+  BND.poly.forEach(([x, z], i) => i ? g.lineTo(px(x), pz(z)) : g.moveTo(px(x), pz(z)));
+  g.closePath(); g.fill("evenodd");
+  // district boundary line
+  g.strokeStyle = "rgba(53,224,255,0.55)"; g.lineWidth = 3;
+  g.beginPath();
+  BND.poly.forEach(([x, z], i) => i ? g.lineTo(px(x), pz(z)) : g.moveTo(px(x), pz(z)));
+  g.closePath(); g.stroke();
+  // sim-domain marker (heat field + agents live here)
+  g.setLineDash([10, 12]); g.strokeStyle = "rgba(61,220,132,0.45)"; g.lineWidth = 2;
+  g.strokeRect(px(0), pz(0), EXT_X * sx, EXT_Z * sy);
+  g.setLineDash([]);
   const tx = new THREE.CanvasTexture(c);
   tx.anisotropy = 8;
   return tx;
 }
 const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(EXT_X, EXT_Z),
+  new THREE.PlaneGeometry(GRD_W, GRD_D),
   new THREE.MeshStandardMaterial({ map: makeGroundTexture(), roughness: 0.96 })
 );
 ground.rotateX(-Math.PI / 2);
-ground.position.set(EXT_X / 2, 0, EXT_Z / 2);
+ground.position.set(CTR_X, 0, CTR_Z);
 ground.receiveShadow = true;
 scene.add(ground);
 const apron = new THREE.Mesh(
-  new THREE.PlaneGeometry(EXT_X * 4, EXT_Z * 6),
+  new THREE.PlaneGeometry(GRD_W * 4, GRD_D * 4),
   new THREE.MeshStandardMaterial({ color: 0x0d1014, roughness: 1 })
 );
 apron.rotateX(-Math.PI / 2);
-apron.position.set(EXT_X / 2, -0.2, EXT_Z / 2);
+apron.position.set(CTR_X, -0.2, CTR_Z);
 scene.add(apron);
 
 // ---------------------------------------------------------------- heat layer
@@ -264,46 +329,109 @@ function updateHeat(hour) {
 }
 
 // ---------------------------------------------------------------- buildings
-function facadeTextures(kind) {
-  const c = document.createElement("canvas"); c.width = 64; c.height = 128;
-  const e = document.createElement("canvas"); e.width = 64; e.height = 128;
-  const gc = c.getContext("2d"), ge = e.getContext("2d");
-  const base = { tower: "#222a33", midrise: "#2b2a30", lowrise: "#332e29" }[kind];
-  gc.fillStyle = base; gc.fillRect(0, 0, 64, 128);
-  ge.fillStyle = "#000"; ge.fillRect(0, 0, 64, 128);
-  for (let wx = 0; wx < 4; wx++) for (let wy = 0; wy < 8; wy++) {
-    const px = 6 + wx * 14, py = 6 + wy * 15;
-    gc.fillStyle = "#3a4754"; gc.fillRect(px, py, 9, 10);
-    if (Math.random() < 0.55) {
-      const warm = Math.random() < 0.8;
-      ge.fillStyle = warm ? `rgba(255,208,120,${0.5 + Math.random() * 0.5})`
-                          : `rgba(160,220,255,${0.4 + Math.random() * 0.4})`;
-      ge.fillRect(px, py, 9, 10);
-    }
-  }
-  return [new THREE.CanvasTexture(c), new THREE.CanvasTexture(e)];
+// Real OSM footprints (or procedural fallback) extruded and merged into one
+// mesh; windows are generated in-shader from world position so they work on
+// arbitrary polygon facades. Per-building attributes: aSeed (window pattern),
+// aDim (out-of-district context buildings are dimmed).
+const bldUniforms = {
+  uNight: { value: 0 }, uLit: { value: 0 }, uTherm: { value: 0 },
+};
+const bldGeos = [];
+scene3dData.buildings.forEach((b, idx) => {
+  const ring = b.poly;
+  if (!ring || ring.length < 3) return;
+  const shape = new THREE.Shape();
+  shape.moveTo(ring[0][0], -ring[0][1]);
+  for (let i = 1; i < ring.length; i++) shape.lineTo(ring[i][0], -ring[i][1]);
+  shape.closePath();
+  let geo;
+  try {
+    geo = new THREE.ExtrudeGeometry(shape, { depth: b.h, bevelEnabled: false, curveSegments: 1 });
+  } catch { return; }
+  geo.rotateX(-Math.PI / 2);   // shape (x,-z) extruded +z -> world (x, h, z)
+  const n = geo.attributes.position.count;
+  const seed = (idx * 0.6180339887) % 1;
+  geo.setAttribute("aSeed", new THREE.BufferAttribute(new Float32Array(n).fill(seed), 1));
+  geo.setAttribute("aDim", new THREE.BufferAttribute(new Float32Array(n).fill(b.in ? 1 : 0.45), 1));
+  bldGeos.push(geo);
+});
+const bldMat = new THREE.MeshStandardMaterial({ color: 0x8e98a4, roughness: 0.82, metalness: 0.05 });
+bldMat.onBeforeCompile = (sh) => {
+  Object.assign(sh.uniforms, bldUniforms);
+  sh.vertexShader = sh.vertexShader
+    .replace("#include <common>", `#include <common>
+      attribute float aSeed; attribute float aDim;
+      varying vec3 vWPos; varying vec3 vWNorm; varying float vSeed; varying float vDim;`)
+    .replace("#include <fog_vertex>", `#include <fog_vertex>
+      vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+      vWNorm = normalize(mat3(modelMatrix) * objectNormal);
+      vSeed = aSeed; vDim = aDim;`);
+  sh.fragmentShader = sh.fragmentShader
+    .replace("#include <common>", `#include <common>
+      uniform float uNight; uniform float uLit; uniform float uTherm;
+      varying vec3 vWPos; varying vec3 vWNorm; varying float vSeed; varying float vDim;
+      float gWin = 0.0; vec3 gWinCol = vec3(0.0);
+      float bhash(vec3 p){ return fract(sin(dot(p, vec3(12.9898,78.233,37.719)))*43758.5453); }`)
+    .replace("#include <color_fragment>", `#include <color_fragment>
+      {
+        float roof = step(0.55, abs(vWNorm.y));
+        float useX = step(abs(vWNorm.x), abs(vWNorm.z));
+        float lateral = mix(vWPos.z, vWPos.x, useX);
+        vec2 wc = vec2(lateral / 3.4, vWPos.y / 3.2);
+        vec2 cell = floor(wc); vec2 fr = fract(wc);
+        float rnd = bhash(vec3(cell, vSeed * 97.0));
+        float mask = step(0.2, fr.x) * step(fr.x, 0.8) * step(0.26, fr.y) * step(fr.y, 0.82);
+        // per-building tint: cool grey <-> warm tan, like the Nihonbashi mix
+        float tint = bhash(vec3(vSeed * 53.0, 7.1, 3.3));
+        diffuseColor.rgb *= mix(vec3(0.92, 0.97, 1.05), vec3(1.06, 0.99, 0.88), tint);
+        diffuseColor.rgb *= (0.88 + 0.12 * bhash(vec3(vSeed * 31.0, cell)));
+        // grounding gradient (fake AO at street level)
+        diffuseColor.rgb *= (0.72 + 0.28 * clamp(vWPos.y / 14.0, 0.0, 1.0));
+        diffuseColor.rgb *= mix(1.0, 0.55, roof);
+        diffuseColor.rgb *= mix(0.5, 1.0, vDim);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.012, 0.016, 0.03), uTherm);
+        gWin = step(1.0 - uLit, rnd) * mask * (1.0 - roof) * (1.0 - uTherm);
+        gWinCol = mix(vec3(1.0, 0.78, 0.45), vec3(0.62, 0.85, 1.0), step(0.92, rnd));
+      }`)
+    .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+      totalEmissiveRadiance += gWinCol * gWin * uNight * 1.1 * vDim;`);
+};
+if (bldGeos.length) {
+  const mergedBld = new THREE.Mesh(BufferGeometryUtils.mergeGeometries(bldGeos, false), bldMat);
+  mergedBld.castShadow = mergedBld.receiveShadow = true;
+  scene.add(mergedBld);
+  for (const g of bldGeos) g.dispose();
 }
-const facadeBank = { tower: facadeTextures("tower"), midrise: facadeTextures("midrise"),
-                     lowrise: facadeTextures("lowrise") };
-const roofMat = new THREE.MeshStandardMaterial({ color: 0x16191e, roughness: 0.95 });
-const buildingMats = [];   // to drive emissiveIntensity with night factor
-for (const b of scene3dData.buildings) {
-  const [mapT, emiT] = facadeBank[b.kind] ?? facadeBank.midrise;
-  const map = mapT.clone(), emi = emiT.clone();
-  map.wrapS = map.wrapT = emi.wrapS = emi.wrapT = THREE.RepeatWrapping;
-  const rep = [Math.max(1, Math.round(b.w / 16)), Math.max(1, Math.round(b.h / 18))];
-  map.repeat.set(...rep); emi.repeat.set(...rep);
-  const side = new THREE.MeshStandardMaterial({
-    map, emissiveMap: emi, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.85,
+
+// district boundary light wall (additive ribbon fading upward)
+{
+  const H = 26, p = BND.poly, n = p.length;
+  const pos = new Float32Array((n + 1) * 2 * 3), uv = new Float32Array((n + 1) * 2 * 2);
+  for (let i = 0; i <= n; i++) {
+    const [x, z] = p[i % n];
+    pos.set([x, 0, z, x, H, z], i * 6);
+    uv.set([i / n, 0, i / n, 1], i * 4);
+  }
+  const idx = [];
+  for (let i = 0; i < n; i++) {
+    const a = i * 2, b = i * 2 + 1, c2 = i * 2 + 2, d = i * 2 + 3;
+    idx.push(a, c2, b, b, c2, d);
+  }
+  const wallGeo = new THREE.BufferGeometry();
+  wallGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  wallGeo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+  wallGeo.setIndex(idx);
+  const wallMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    uniforms: { uI: { value: 0.3 } },
+    vertexShader: `varying vec2 vUv;
+      void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: `varying vec2 vUv; uniform float uI;
+      void main(){ gl_FragColor = vec4(0.21, 0.88, 1.0, (1.0 - vUv.y) * uI); }`,
   });
-  buildingMats.push(side);
-  const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(b.w, b.h, b.d),
-    [side, side, roofMat, roofMat, side, side]
-  );
-  mesh.position.set(b.x + b.w / 2, b.h / 2, b.z + b.d / 2);
-  mesh.castShadow = mesh.receiveShadow = true;
-  scene.add(mesh);
+  scene.add(new THREE.Mesh(wallGeo, wallMat));
+  var boundaryWallMat = wallMat;  // var: referenced from updateEnvironment
 }
 
 // shelters: low cyan-banded pavilions
@@ -335,26 +463,47 @@ const glowTex = (() => {
   g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
   return new THREE.CanvasTexture(c);
 })();
+// lamp positions sampled every ~65 m along major roads inside the district
 const lampGlows = [], lampLights = [];
-const avZ = (scene3dData.avenue_y ?? 5) * CELL;
-const poleGeo = new THREE.CylinderGeometry(0.25, 0.3, 9, 6);
-const poleMat = new THREE.MeshStandardMaterial({ color: 0x30343a });
-for (let x = 40; x < EXT_X; x += 70) {
-  for (const side of [-1, 1]) {
-    const z = avZ + side * 13;
-    const pole = new THREE.Mesh(poleGeo, poleMat);
-    pole.position.set(x, 4.5, z);
-    scene.add(pole);
+{
+  const lampPts = [];
+  const LAMP_CLASSES = new Set(["trunk", "primary", "secondary", "pedestrian"]);
+  for (const r of scene3dData.roads ?? []) {
+    if (!LAMP_CLASSES.has(r.cls) || r.bridge) continue;
+    let carry = 30;
+    for (let i = 1; i < r.pts.length && lampPts.length < 320; i++) {
+      const [x0, z0] = r.pts[i - 1], [x1, z1] = r.pts[i];
+      const seg = Math.hypot(x1 - x0, z1 - z0);
+      let d = carry;
+      while (d < seg) {
+        const t = d / seg, x = x0 + (x1 - x0) * t, z = z0 + (z1 - z0) * t;
+        if (pointInPoly(x, z, BND.poly)) lampPts.push([x, z]);
+        d += 65;
+      }
+      carry = d - seg;
+    }
+  }
+  const poleGeo = new THREE.CylinderGeometry(0.25, 0.3, 9, 6);
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x30343a });
+  const poles = new THREE.InstancedMesh(poleGeo, poleMat, lampPts.length);
+  const m4 = new THREE.Matrix4();
+  lampPts.forEach(([x, z], i) => {
+    m4.makeTranslation(x, 4.5, z);
+    poles.setMatrixAt(i, m4);
     const spr = new THREE.Sprite(new THREE.SpriteMaterial({
       map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 }));
-    spr.scale.set(16, 16, 1); spr.position.set(x, 9.4, z);
+    spr.scale.set(9, 9, 1); spr.position.set(x, 9.4, z);
     scene.add(spr); lampGlows.push(spr.material);
+  });
+  scene.add(poles);
+  // a few real point lights nearest the sim domain (where the agents are)
+  const ranked = [...lampPts].sort((a, b) =>
+    Math.hypot(a[0] - EXT_X / 2, a[1] - EXT_Z / 2) - Math.hypot(b[0] - EXT_X / 2, b[1] - EXT_Z / 2));
+  for (const [x, z] of ranked.slice(0, 8)) {
+    const pl = new THREE.PointLight(0xffb869, 0, 90, 1.8);
+    pl.position.set(x, 9, z);
+    scene.add(pl); lampLights.push(pl);
   }
-}
-for (let x = 90; x < EXT_X; x += 180) {
-  const pl = new THREE.PointLight(0xffb869, 0, 90, 1.8);
-  pl.position.set(x, 9, avZ);
-  scene.add(pl); lampLights.push(pl);
 }
 
 // ---------------------------------------------------------------- entities
@@ -429,7 +578,7 @@ function skyColor(h) {
     (a[2] + (b[2] - a[2]) * t) / 255,
     (a[3] + (b[3] - a[3]) * t) / 255);
 }
-scene.fog = new THREE.Fog(0x05070d, 600, 2600);
+scene.fog = new THREE.Fog(0x05070d, 700, 3400);
 
 function updateEnvironment(hour) {
   const sunAng = ((hour - 6) / 12) * Math.PI;        // 6h sunrise, 18h sunset
@@ -440,14 +589,19 @@ function updateEnvironment(hour) {
     EXT_X / 2 + Math.cos(sunAng) * 900,
     Math.max(8, elev * 800),
     EXT_Z / 2 - 320);
-  sun.intensity = day * 2.4;
+  sun.intensity = day * 2.7;
   sun.color.setHSL(0.085, 0.8, Math.min(0.92, 0.45 + day * 0.5));
-  hemi.intensity = 0.12 + day * 0.85;
+  hemi.intensity = 0.12 + day * 0.62;
   const sky = state.thermal ? new THREE.Color(0x02030a) : skyColor(hour % 24);
   scene.background = sky;
   scene.fog.color = sky;
-  for (const m of buildingMats) m.emissiveIntensity = night * (state.thermal ? 0.25 : 1.0);
-  for (const m of lampGlows) m.opacity = night * 0.9;
+  bldUniforms.uNight.value = night;
+  bldUniforms.uTherm.value = state.thermal ? 1 : 0;
+  // fraction of windows lit: evening peak, sparse after midnight
+  const lateNight = (hour >= 23.5 || hour < 5);
+  bldUniforms.uLit.value = night * (lateNight ? 0.12 : 0.34);
+  boundaryWallMat.uniforms.uI.value = state.thermal ? 0.5 : 0.14 + night * 0.3;
+  for (const m of lampGlows) m.opacity = night * (state.thermal ? 0.1 : 0.55);
   for (const l of lampLights) l.intensity = night * 60;
   const pulse = 0.35 + 0.25 * Math.sin(performance.now() / 300);
   for (const s of shelterMeshes) s.mesh.material.emissiveIntensity = 0.18 + night * pulse;
@@ -555,6 +709,7 @@ loadFrames("baseline").then(updateMetricsHUD);
 // ---------------------------------------------------------------- main loop
 const loadingEl = $("loading");
 loadingEl.remove();
+if (!IS_OSM) $("attrib").textContent = "procedural placeholder geometry";
 syncButtons(); updateMetricsHUD();
 
 const mtx = new THREE.Matrix4(), quat = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
@@ -574,8 +729,8 @@ function animate(now) {
   updateHeat(hour);
   if (state.auto) {
     const a = now / 22000;
-    camera.position.x = EXT_X / 2 + Math.cos(a) * 330;
-    camera.position.z = EXT_Z * 0.45 + Math.sin(a) * 290;
+    camera.position.x = controls.target.x + Math.cos(a) * 430;
+    camera.position.z = controls.target.z + Math.sin(a) * 430;
   }
   controls.update();
 
