@@ -141,7 +141,11 @@ const ramp = (t) => {
       name: 'Building ' + b.id,
       description: `<b>Building ${b.id}</b><br>${b.use || ''} · ${b.program || ''}<br>` +
         `Annual energy: ${Math.round(b.annual_energy_kwh).toLocaleString()} kWh/yr<br>` +
-        `Intensity: ${b.intensity} kWh/m²·yr · WWR ${b.wwr ?? '—'} · ${b.material ?? ''}`,
+        `Intensity: ${b.intensity} kWh/m²·yr · ${b.material ?? ''}` +
+        (b.scn ? `<br><br><b>Retrofit — WWR / R-value</b><br>` +
+          `baseline: ${b.scn.baseline.wwr} / ${b.scn.baseline.r}<br>` +
+          `S1 (WWR −20%): ${b.scn.s1.wwr} / ${b.scn.s1.r}<br>` +
+          `S2 (+R +40%): ${b.scn.s2.wwr} / ${b.scn.s2.r}` : ''),
       polygon: { hierarchy: Cesium.Cartesian3.fromDegreesArray(flat),
         material: Cesium.Color.GRAY, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
         extrudedHeight: b.height, extrudedHeightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
@@ -155,11 +159,15 @@ const ramp = (t) => {
     function recolor() {
       const [key, title] = METRICS[state.metric];
       const [mn, mx] = scene.metric_ranges[key] || [0, 1];
+      const scenWWR = (state.metric === 'wwr' && state.demand !== 'baseline');
       for (const { b, entity } of ents) {
-        const v = b[key]; const t = (mx > mn) ? (v - mn) / (mx - mn) : 0.5;
+        // WWR is scenario-aware: under S1/S2 use each building's REAL retrofit WWR
+        let v = b[key];
+        if (state.metric === 'wwr' && b.scn && b.scn[state.demand]) v = b.scn[state.demand].wwr;
+        const t = (mx > mn) ? (v - mn) / (mx - mn) : 0.5;
         entity.polygon.material = ramp(t);
       }
-      $('leg-title').textContent = title;
+      $('leg-title').textContent = title + (scenWWR ? ` · ${state.demand.toUpperCase()}` : '');
       $('lmin').textContent = Math.round(mn).toLocaleString();
       $('lmax').textContent = Math.round(mx).toLocaleString();
       kpi();

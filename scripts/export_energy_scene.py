@@ -26,6 +26,28 @@ try:
     be = json.load(open(ED / "building_energy.json"))   # UBEM: enduse split, WWR, material, profile
 except Exception:
     be = {}
+
+# Per-building retrofit parameters per scenario (Index_energy.xlsx: baseline/s1/s2
+# sheets give each building's real WWR + R-value under each demand scenario).
+scn_by_id = {}
+try:
+    import openpyxl
+    wbx = openpyxl.load_workbook(ED / "Index_energy.xlsx", read_only=True, data_only=True)
+    for sh in ("baseline", "s1", "s2"):
+        if sh not in wbx.sheetnames:
+            continue
+        ws = wbx[sh]
+        hdr = [str(c).strip().lower() if c else "" for c in next(ws.iter_rows(min_row=1, max_row=1, values_only=True))]
+        ci = {h: i for i, h in enumerate(hdr)}
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if not row or row[0] is None:
+                continue
+            rec = scn_by_id.setdefault(int(row[0]), {})
+            rec[sh] = {"wwr": round(float(row[ci["window ratio"]]), 3),
+                       "r": round(float(row[ci["r-value"]]), 2)}
+    print(f"  Index_energy: {len(scn_by_id)} buildings × {len(['baseline','s1','s2'])} scenarios")
+except Exception as e:
+    print(f"  Index_energy not read ({e}); scenarios stay uniform")
 # EV / transport sector (8760h car+bus) — annual total only for the integrated KPI
 ev_annual_kwh = None
 try:
@@ -88,6 +110,7 @@ for f in geo["features"]:
         "program": u.get("program"),
         "enduse": u.get("enduse_frac"),       # {cooling,heating,lighting} fractions
         "profile24": u.get("profile24"),       # 0..1 hourly load shape
+        "scn": scn_by_id.get(bid),             # real per-scenario WWR + R (baseline/s1/s2)
     })
 
 # ---- supply scenarios (enrich PV+BESS with real REopt numbers) ---------------
