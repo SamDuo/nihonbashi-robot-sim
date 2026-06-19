@@ -114,9 +114,12 @@ const ramp = (t) => {
     let terrainProvider;
     try { terrainProvider = await Cesium.CesiumTerrainProvider.fromIonAssetId(3258112); }
     catch { terrainProvider = new Cesium.EllipsoidTerrainProvider(); }
+    // Bing Aerial w/Labels base so the GROUND + STREETS show (PLATEAU has no ground mesh;
+    // with globe off the streets were black). Needs the user's ion token.
+    const baseLayer = Cesium.ImageryLayer.fromProviderAsync(Cesium.IonImageryProvider.fromAssetId(3));
 
     const viewer = new Cesium.Viewer('cesium', {
-      terrainProvider, baseLayerPicker:false, geocoder:false, homeButton:false,
+      baseLayer, terrainProvider, baseLayerPicker:false, geocoder:false, homeButton:false,
       sceneModePicker:false, navigationHelpButton:false, timeline:false, animation:false,
       fullscreenButton:false, infoBox:true, selectionIndicator:true,
       requestRenderMode:true, maximumRenderTimeChange:Infinity, useBrowserRecommendedResolution:true,
@@ -126,8 +129,8 @@ const ramp = (t) => {
     sc.requestRenderMode = true; sc.maximumRenderTimeChange = Infinity;
     sc.skyBox = undefined; sc.skyAtmosphere = undefined;
     sc.fog.enabled = false; sc.shadowMap.enabled = false; viewer.shadows = false;
-    sc.globe.enableLighting = false; sc.globe.show = false;   // photoreal covers the ground
-    sc.globe.maximumScreenSpaceError = 4; sc.globe.tileCacheSize = 60;
+    sc.globe.enableLighting = false;          // globe ON so the aerial ground + streets render
+    sc.globe.maximumScreenSpaceError = 2; sc.globe.tileCacheSize = 80;
     sc.msaaSamples = 1; sc.postProcessStages.fxaa.enabled = false; sc.highDynamicRange = false;
     const cc = sc.screenSpaceCameraController;
     cc.minimumZoomDistance = 120; cc.maximumZoomDistance = 1200; cc.enableCollisionDetection = true;

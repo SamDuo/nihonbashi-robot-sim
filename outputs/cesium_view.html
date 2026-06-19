@@ -117,9 +117,9 @@ function parseCsv(text) {
       terrainProvider = new Cesium.EllipsoidTerrainProvider();
     }
 
-    const baseLayer = new Cesium.ImageryLayer(new Cesium.OpenStreetMapImageryProvider({
-      url: 'https://tile.openstreetmap.org/'
-    }));
+    // ion Bing Maps Aerial w/Labels (asset 3) — fixes the OSM 403 + shows street labels.
+    // Needs the user's ion token (window.ION_TOKEN_OVERRIDE from ion_token.js).
+    const baseLayer = Cesium.ImageryLayer.fromProviderAsync(Cesium.IonImageryProvider.fromAssetId(3));
     setStatus('Constructing viewer');
     const viewer = new Cesium.Viewer('cesium', {
       baseLayer,
@@ -132,6 +132,14 @@ function parseCsv(text) {
     viewer.clockViewModel.shouldAnimate = true;
     viewer.scene.skyBox = undefined;
     viewer.scene.skyAtmosphere = undefined;
+    // performance (globe stays ON — heat drapes on it; clock stays live for agents,
+    // so NO requestRenderMode here)
+    const sc = viewer.scene;
+    sc.fog.enabled = false; sc.shadowMap.enabled = false; viewer.shadows = false;
+    sc.globe.enableLighting = false; sc.globe.maximumScreenSpaceError = 2; sc.globe.tileCacheSize = 80;
+    sc.msaaSamples = 1; sc.postProcessStages.fxaa.enabled = false; sc.highDynamicRange = false;
+    const cc = sc.screenSpaceCameraController;
+    cc.minimumZoomDistance = 120; cc.maximumZoomDistance = 1400; cc.enableCollisionDetection = true;
 
     viewer.camera.setView({
       destination: Cesium.Cartesian3.fromDegrees(139.7770, 35.6788, 760),
