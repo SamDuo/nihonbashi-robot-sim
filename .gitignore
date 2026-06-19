@@ -98,3 +98,9 @@ data/*.zip
 node_modules/
 # The optimized demo city mesh (~18MB, under the limit) IS committed via `git add -f`
 # even though outputs/twin/ is ignored above — so the twin works on a fresh clone.
+
+# --- Energy twin: heavy/redundant raw uploads (processed outputs ARE committed) ---
+data/energy/*.zip
+data/energy/Nihonbashi_District/
+data/energy/pings_in_area_6677.geojson
+*.pptx

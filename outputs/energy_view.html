@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>NIHONBASHI ENERGY TWIN — carbon-neutrality pathways</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root { --cyan:#35e0ff; --green:#3ddc84; --amber:#ffb347; --red:#ff5436;
+    --chip:rgba(8,12,18,0.82); --chip-border:rgba(80,220,255,0.25); }
+  html,body{margin:0;height:100%;background:#070b11;overflow:hidden;
+    font-family:"JetBrains Mono","SFMono-Regular",Consolas,monospace;color:#cfe9f2;}
+  #gl{position:absolute;inset:0;width:100%;height:100%;}
+  .hud{position:absolute;font-size:11px;letter-spacing:.05em;text-shadow:0 1px 2px #000;user-select:none;z-index:10;}
+  .chip{background:var(--chip);border:1px solid var(--chip-border);border-radius:4px;padding:8px 11px;}
+  #tl{top:12px;left:12px;}
+  #tl .t{color:var(--cyan);font-weight:700;font-size:12px;}
+  #tl .big{font-size:26px;font-weight:700;color:#fff;line-height:1.15;}
+  #tl .sub{color:#8fb3c0;margin-top:2px;}
+  #bl{bottom:12px;left:12px;min-width:230px;}
+  #bl .row{display:flex;justify-content:space-between;gap:18px;margin:2px 0;}
+  #bl .v{color:var(--green);font-weight:700;}
+  #br{bottom:12px;right:12px;width:190px;}
+  #br .lt{color:#9fc4d2;margin-bottom:5px;}
+  #grad{height:11px;border-radius:2px;margin:3px 0;}
+  #cats{display:flex;flex-direction:column;gap:3px;}
+  .cat{display:flex;align-items:center;gap:6px;}
+  .sw{width:11px;height:11px;border-radius:2px;display:inline-block;}
+  #ctl{bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:14px;align-items:flex-end;
+    pointer-events:auto;flex-wrap:wrap;justify-content:center;}
+  .grp{display:flex;flex-direction:column;gap:3px;}
+  .grp .lbl{font-size:8.5px;color:#6f8896;letter-spacing:.12em;text-align:center;}
+  .grp .btns{display:flex;gap:5px;}
+  .btn{cursor:pointer;padding:5px 8px;border:1px solid var(--chip-border);border-radius:3px;
+    background:var(--chip);color:#9fc4d2;font:inherit;font-size:9.5px;letter-spacing:.05em;}
+  .btn:hover{color:#fff;border-color:var(--cyan);}
+  .btn.on{color:#06141a;background:var(--cyan);border-color:var(--cyan);font-weight:700;}
+  #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:var(--cyan);font-size:13px;z-index:50;background:#070b11;letter-spacing:.2em;}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="loading">LOADING NIHONBASHI ENERGY TWIN …</div>
+
+<div class="hud chip" id="tl">
+  <div class="t">NIHONBASHI ENERGY TWIN · 日本橋</div>
+  <div class="big" id="kpi">— t CO₂/yr</div>
+  <div class="sub" id="scen">demand: baseline · supply: baseline</div>
+  <div class="sub" id="metricName">colour: annual energy</div>
+</div>
+
+<div class="hud chip" id="bl">
+  <div class="row"><span>BUILDINGS</span><span class="v" id="mEnergy">—</span></div>
+  <div class="row"><span>+ TRANSPORT (EV)</span><span class="v" id="mEV">—</span></div>
+  <div class="row"><span>ANNUAL CO₂</span><span class="v" id="mCO2">—</span></div>
+  <div class="row"><span>LIFECYCLE COST</span><span class="v" id="mCost">—</span></div>
+  <div class="row"><span>Δ CO₂ vs BASELINE</span><span class="v" id="mDelta">—</span></div>
+  <div class="row" style="margin-top:5px;color:#6f8896"><span id="supplyInfo">—</span></div>
+</div>
+
+<div class="hud chip" id="br">
+  <div class="lt" id="legTitle">ANNUAL ENERGY (kWh)</div>
+  <div id="grad"></div>
+  <div style="display:flex;justify-content:space-between;color:#8fb3c0"><span id="legMin">—</span><span id="legMax">—</span></div>
+  <div id="cats" style="display:none;margin-top:4px"></div>
+</div>
+
+<div class="hud" id="ctl">
+  <div class="grp"><div class="lbl">COLOUR BY</div><div class="btns" id="metricBtns"></div></div>
+  <div class="grp"><div class="lbl">DEMAND</div><div class="btns" id="demandBtns"></div></div>
+  <div class="grp"><div class="lbl">SUPPLY</div><div class="btns" id="supplyBtns"></div></div>
+  <div class="grp"><div class="lbl">VIEW</div><div class="btns" id="viewBtns"></div></div>
+  <div class="grp"><div class="lbl">HOUR</div><div class="btns">
+    <input id="hour" type="range" min="0" max="23.99" step="0.1" value="13" style="width:120px;accent-color:var(--cyan)">
+    <span class="btn" id="play">▶</span></div></div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const params = new URLSearchParams(location.search);
+const $ = id => document.getElementById(id);
+
+const scene3d = await fetch("energy/energy_scene.json").then(r => r.json());
+const B = scene3d.buildings, MR = scene3d.metric_ranges;
+const SUP = scene3d.supply_scenarios, DEM = scene3d.demand_scenarios;
+const TOTAL_E = scene3d.meta.total_annual_energy_kwh;
+
+const USE_COLOR = {
+  "Office":"#35e0ff", "Residence & Commercial Mixed":"#ffb347",
+  "Apartment":"#3ddc84", "Public":"#ff5436", "Unknown":"#8fb3c0" };
+const TIER_COLOR = { "Reconstruct":"#ff5436", "Renovate":"#ffb347", "Maintenance":"#3ddc84", "Unknown":"#8fb3c0" };
+const MAT_COLOR = { "tile":"#e0a96d", "metal":"#9fb3c0", "paint":"#7fcf9a", "concrete":"#b8b8b8" };
+const ENDUSE_COLOR = { cooling:[0.21,0.55,1.0], heating:[1.0,0.33,0.21], lighting:[1.0,0.82,0.3] };
+const RAMP = [[0,[44,43,110]],[.25,[33,144,141]],[.5,[90,200,100]],[.75,[253,231,37]],[1,[255,84,54]]];
+const rampColor = t => {
+  t = Math.max(0, Math.min(1, t));
+  for (let i = 1; i < RAMP.length; i++) if (t <= RAMP[i][0]) {
+    const a = RAMP[i-1], b = RAMP[i], f = (t-a[0])/(b[0]-a[0]);
+    return new THREE.Color(`rgb(${a[1].map((c,j)=>Math.round(c+(b[1][j]-c)*f)).join(",")})`);
+  }
+  return new THREE.Color("rgb(255,84,54)");
+};
+
+const METRICS = [
+  {k:"annual_energy_kwh", label:"annual energy", legend:"ANNUAL ENERGY (kWh)", cont:true},
+  {k:"co2", label:"CO₂ share", legend:"BUILDING CO₂ (t/yr)", cont:true},
+  {k:"enduse", label:"end-use mix", legend:"END-USE  ⬤cool ⬤heat ⬤light", special:"enduse"},
+  {k:"wwr", label:"window ratio", legend:"WINDOW-TO-WALL RATIO", cont:true},
+  {k:"revit_cost_yenM", label:"revit cost", legend:"REVITALISATION COST (¥M)", cont:true},
+  {k:"use", label:"use type", legend:"USE TYPE", cont:false, colors:USE_COLOR},
+  {k:"tier", label:"age tier", legend:"AGE TIER", cont:false, colors:TIER_COLOR},
+  {k:"material", label:"facade material", legend:"FACADE MATERIAL", cont:false, colors:MAT_COLOR},
+];
+
+const state = { metric:"annual_energy_kwh", demand:"baseline", supply:"baseline", hour:13, playing:false, facade:true };
+
+// ---------------------------------------------------------------- three setup
+const renderer = new THREE.WebGLRenderer({ canvas:$("gl"), antialias:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0f16);
+scene.fog = new THREE.Fog(0x0a0f16, 260, 720);
+
+// frame on the building bbox
+const xs = B.flatMap(b => b.poly.map(p => p[0])), zs = B.flatMap(b => b.poly.map(p => p[1]));
+const CX = (Math.min(...xs)+Math.max(...xs))/2, CZ = (Math.min(...zs)+Math.max(...zs))/2;
+const span = Math.max(Math.max(...xs)-Math.min(...xs), Math.max(...zs)-Math.min(...zs));
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.5, 4000);
+camera.position.set(CX - span*0.7, span*0.9, CZ + span*1.1);
+const controls = new OrbitControls(camera, $("gl"));
+controls.target.set(CX, 12, CZ);
+controls.enableDamping = true; controls.maxPolarAngle = Math.PI*0.49;
+controls.minDistance = 25; controls.maxDistance = 900;
+
+scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x202a33, 0.85));
+const sun = new THREE.DirectionalLight(0xfff2e0, 2.1);
+sun.position.set(CX + 120, 220, CZ + 90); sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+const SC = span*1.2;
+Object.assign(sun.shadow.camera, { left:-SC, right:SC, top:SC, bottom:-SC, near:1, far:900 });
+sun.target.position.set(CX, 0, CZ); scene.add(sun, sun.target);
+
+// ground
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(span*6, span*6),
+  new THREE.MeshStandardMaterial({ color:0x161b22, roughness:0.98 }));
+ground.rotateX(-Math.PI/2); ground.position.set(CX, 0, CZ); ground.receiveShadow = true;
+scene.add(ground);
+
+// ---------------------------------------------------------------- buildings
+// extruded footprint + procedural window facade; per-building colour + occupancy glow.
+function makeMaterial(wwr) {
+  const m = new THREE.MeshStandardMaterial({ color:0x8893a0, roughness:0.82, metalness:0.05, side:THREE.DoubleSide });
+  m.userData.u = { uGlow:{value:0}, uWWR:{value: wwr ?? 0.2}, uFacade:{value:1} };
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uGlow = m.userData.u.uGlow;
+    sh.uniforms.uWWR = m.userData.u.uWWR;
+    sh.uniforms.uFacade = m.userData.u.uFacade;
+    sh.vertexShader = sh.vertexShader
+      .replace("#include <common>", "#include <common>\n varying vec3 vWP; varying vec3 vWN;")
+      .replace("#include <fog_vertex>", "#include <fog_vertex>\n vWP=(modelMatrix*vec4(transformed,1.)).xyz; vWN=normalize(mat3(modelMatrix)*objectNormal);");
+    sh.fragmentShader = sh.fragmentShader
+      .replace("#include <common>", "#include <common>\n uniform float uGlow; uniform float uWWR; uniform float uFacade; varying vec3 vWP; varying vec3 vWN;\n float gw=0.;\n float h21(vec2 p){return fract(sin(dot(p,vec2(41.3,289.1)))*43758.5);} ")
+      .replace("#include <color_fragment>", `#include <color_fragment>
+        { float roof=step(0.55,abs(vWN.y)); float wall=1.-roof;
+          float useX=step(abs(vWN.x),abs(vWN.z)); float lat=mix(vWP.z,vWP.x,useX);
+          vec2 cell=floor(vec2(lat/3.2, vWP.y/3.4)); vec2 fr=fract(vec2(lat/3.2, vWP.y/3.4));
+          float pm=clamp(sqrt(uWWR)*0.62, 0.13, 0.46);     // window half-size from real WWR
+          float pane=step(0.5-pm,fr.x)*step(fr.x,0.5+pm)*step(0.5-pm,fr.y)*step(fr.y,0.5+pm);
+          pane*=uFacade;                                    // DATA mode (uFacade=0) -> flat massing
+          diffuseColor.rgb*=(0.78+0.22*clamp(vWP.y/24.,0.,1.));        // street AO
+          vec3 glass=diffuseColor.rgb*vec3(0.55,0.6,0.72);
+          diffuseColor.rgb=mix(diffuseColor.rgb, glass, pane*wall*0.8);
+          diffuseColor.rgb*=mix(1.,0.82,(1.-pane)*wall);
+          gw=pane*wall*h21(cell+0.3);
+        }`)
+      .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n totalEmissiveRadiance += vec3(1.0,0.82,0.5)*gw*uGlow*1.3;");
+  };
+  return m;
+}
+
+const meshes = [];
+for (const b of B) {
+  const shape = new THREE.Shape(b.poly.map(([x,z]) => new THREE.Vector2(x, -z)));
+  const geo = new THREE.ExtrudeGeometry(shape, { depth:b.height, bevelEnabled:false });
+  geo.rotateX(-Math.PI/2);
+  const mat = makeMaterial(b.wwr);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  mesh.userData.b = b;
+  scene.add(mesh);
+  meshes.push(mesh);
+}
+
+// ---------------------------------------------------------------- metrics & colour
+const demandFactor = () => 1 - (DEM[state.demand]?.annual_reduction_pct || 0)/100;
+const buildingEnergy = b => b.annual_energy_kwh * demandFactor();
+const scenCO2total = () => (SUP[state.supply]?.annual_co2_tonnes || 0) * demandFactor();
+const buildingCO2 = b => scenCO2total() * (b.annual_energy_kwh / TOTAL_E);
+
+function metricVal(b) {
+  switch (state.metric) {
+    case "annual_energy_kwh": return buildingEnergy(b);
+    case "co2": return buildingCO2(b);
+    case "wwr": return b.wwr ?? 0;
+    case "revit_cost_yenM": return b.revit_cost_yenM;
+    default: return 0;
+  }
+}
+function applyColors() {
+  const m = METRICS.find(x => x.k === state.metric);
+  for (const mesh of meshes) {
+    const b = mesh.userData.b;
+    let col;
+    if (m.special === "enduse" && b.enduse) {          // additive C/H/L mix
+      const e = b.enduse, c = ENDUSE_COLOR;
+      col = new THREE.Color(
+        e.cooling*c.cooling[0] + e.heating*c.heating[0] + e.lighting*c.lighting[0],
+        e.cooling*c.cooling[1] + e.heating*c.heating[1] + e.lighting*c.lighting[1],
+        e.cooling*c.cooling[2] + e.heating*c.heating[2] + e.lighting*c.lighting[2]);
+    } else if (m.cont) {
+      let rg = MR[state.metric] || MR.annual_energy_kwh;
+      if (state.metric === "co2") rg = [MR.annual_energy_kwh[0]/TOTAL_E*scenCO2total(), MR.annual_energy_kwh[1]/TOTAL_E*scenCO2total()];
+      if (state.metric === "annual_energy_kwh") rg = [MR.annual_energy_kwh[0]*demandFactor(), MR.annual_energy_kwh[1]*demandFactor()];
+      const t = (metricVal(b) - rg[0]) / Math.max(rg[1]-rg[0], 1e-6);
+      col = rampColor(t);
+    } else {
+      col = new THREE.Color(m.colors[b[state.metric]] || "#8fb3c0");
+    }
+    mesh.material.color.copy(col);
+  }
+  updateLegend(m);
+}
+function recompute() {
+  const totE = B.reduce((s,b) => s + buildingEnergy(b), 0);
+  const co2 = scenCO2total();
+  const cost = SUP[state.supply]?.lifecycle_total_cost_yenM || 0;
+  const baseCO2 = SUP.baseline.annual_co2_tonnes;
+  const dPct = (1 - co2/baseCO2) * 100;
+  const ev = scene3d.meta.ev_annual_kwh || 0;
+  $("mEnergy").textContent = (totE/1000).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,",") + " MWh/yr";
+  $("mEV").textContent = (ev/1000).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,",") + " MWh/yr";
+  $("mCO2").textContent = co2.toFixed(0) + " t/yr";
+  $("mCost").textContent = "¥" + cost + "M";
+  $("mDelta").textContent = (dPct>=0?"−":"+") + Math.abs(dPct).toFixed(1) + "%";
+  $("mDelta").style.color = dPct > 0 ? "var(--green)" : "#9fc4d2";
+  $("kpi").textContent = co2.toFixed(0) + " t CO₂/yr";
+  $("scen").textContent = `demand: ${state.demand} · supply: ${state.supply}`;
+  $("metricName").textContent = "colour: " + METRICS.find(x=>x.k===state.metric).label;
+  const sv = SUP[state.supply];
+  $("supplyInfo").textContent = sv.pv_kw ? `${sv.pv_kw}kW PV · ${sv.bess_kwh}kWh BESS · ${Math.round((sv.onsite_renewable_frac||0)*100)}% on-site RE` : sv.label;
+}
+function updateLegend(m) {
+  $("legTitle").textContent = m.legend;
+  if (m.special === "enduse") {
+    $("grad").style.display = "none"; $("legMin").parentElement.style.display = "none";
+    const cats = $("cats"); cats.style.display = ""; cats.innerHTML = "";
+    const C = { cooling:"#358cff", heating:"#ff5436", lighting:"#ffd24d" };
+    for (const k of ["cooling","heating","lighting"])
+      cats.innerHTML += `<div class="cat"><span class="sw" style="background:${C[k]}"></span>${k}</div>`;
+    return;
+  }
+  if (m.cont) {
+    $("grad").style.display = ""; $("legMin").parentElement.style.display = ""; $("cats").style.display = "none";
+    const stops = RAMP.map(s => `rgb(${s[1].join(",")}) ${s[0]*100}%`).join(",");
+    $("grad").style.background = `linear-gradient(90deg,${stops})`;
+    let rg = MR[state.metric] || [0,1];
+    if (state.metric === "co2") rg = [0, MR.annual_energy_kwh[1]/TOTAL_E*scenCO2total()];
+    if (state.metric === "annual_energy_kwh") rg = [rg[0]*demandFactor(), rg[1]*demandFactor()];
+    const fmt = v => state.metric==="annual_energy_kwh" ? (v/1000).toFixed(0)+"k" : v.toFixed(state.metric==="co2"?1:0);
+    $("legMin").textContent = fmt(rg[0]); $("legMax").textContent = fmt(rg[1]);
+  } else {
+    $("grad").style.display = "none"; $("legMin").parentElement.style.display = "none";
+    const cats = $("cats"); cats.style.display = ""; cats.innerHTML = "";
+    const seen = [...new Set(B.map(b => b[m.k]))];
+    for (const c of seen) cats.innerHTML += `<div class="cat"><span class="sw" style="background:${m.colors[c]||'#8fb3c0'}"></span>${c}</div>`;
+  }
+}
+
+// ---------------------------------------------------------------- UI
+function mkBtns(host, items, get, set) {
+  host.innerHTML = "";
+  for (const it of items) {
+    const el = document.createElement("span");
+    el.className = "btn"; el.textContent = it.t; el.dataset.k = it.k;
+    el.onclick = () => { set(it.k); sync(); applyColors(); recompute(); };
+    host.appendChild(el);
+  }
+}
+function sync() {
+  for (const el of document.querySelectorAll("#metricBtns .btn")) el.classList.toggle("on", el.dataset.k===state.metric);
+  for (const el of document.querySelectorAll("#demandBtns .btn")) el.classList.toggle("on", el.dataset.k===state.demand);
+  for (const el of document.querySelectorAll("#supplyBtns .btn")) el.classList.toggle("on", el.dataset.k===state.supply);
+  for (const el of document.querySelectorAll("#viewBtns .btn")) el.classList.toggle("on", el.dataset.k===(state.facade?"real":"data"));
+}
+mkBtns($("metricBtns"), [
+  {k:"annual_energy_kwh",t:"ENERGY"},{k:"co2",t:"CO₂"},{k:"enduse",t:"END-USE"},{k:"wwr",t:"WWR"},
+  {k:"use",t:"USE"},{k:"tier",t:"TIER"},{k:"material",t:"MATERIAL"},{k:"revit_cost_yenM",t:"COST"}],
+  ()=>state.metric, k=>state.metric=k);
+mkBtns($("demandBtns"), [
+  {k:"baseline",t:"BASE"},{k:"s1",t:"S1 −5%"},{k:"s2",t:"S2 −15%"}], ()=>state.demand, k=>state.demand=k);
+mkBtns($("supplyBtns"), [
+  {k:"baseline",t:"GRID"},{k:"pv_bess",t:"PV+BESS"},{k:"pv_bess_chp",t:"+CHP"}], ()=>state.supply, k=>state.supply=k);
+mkBtns($("viewBtns"), [{k:"data",t:"DATA"},{k:"real",t:"REAL"}], ()=>state.facade?"real":"data", k=>{
+  state.facade = (k === "real");
+  for (const mesh of meshes) mesh.material.userData.u.uFacade.value = state.facade ? 1 : 0;
+});
+
+$("hour").oninput = e => { state.hour = parseFloat(e.target.value); };
+$("play").onclick = () => { state.playing = !state.playing; $("play").classList.toggle("on", state.playing); $("play").textContent = state.playing ? "❚❚" : "▶"; };
+
+sync(); applyColors(); recompute();
+$("loading").remove();
+
+// ---------------------------------------------------------------- loop
+const OCC = scene3d.occupancy_hourly || {};
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false); camera.aspect = w/h; camera.updateProjectionMatrix();
+}
+addEventListener("resize", resize); resize();
+
+let last = performance.now();
+function animate(now) {
+  const dt = Math.min((now-last)/1000, 0.1); last = now;
+  if (state.playing) { state.hour = (state.hour + dt*1.5) % 24; $("hour").value = state.hour; }
+  const h0 = Math.floor(state.hour) % 24, h1 = (h0+1)%24, f = state.hour - Math.floor(state.hour);
+  const night = Math.max(0, Math.min(1, (state.hour < 7 ? (7-state.hour)/4 : state.hour > 17 ? (state.hour-17)/4 : 0)));
+  for (const mesh of meshes) {
+    const b = mesh.userData.b;
+    let g = 0;
+    if (b.profile24) g = b.profile24[h0] + (b.profile24[h1]-b.profile24[h0])*f;   // energy load shape
+    else { const occ = OCC[String(b.id)]; if (occ) g = (occ[h0]+(occ[h1]-occ[h0])*f)/100; }
+    mesh.material.userData.u.uGlow.value = g * (0.3 + 0.7*night);
+  }
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>

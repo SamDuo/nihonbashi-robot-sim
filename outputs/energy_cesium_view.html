@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Nihonbashi Energy Twin — Cesium context view</title>
+<link rel="stylesheet"
+      href="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Widgets/widgets.css">
+<script src="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Cesium.js"></script>
+<style>
+  html, body { margin:0; padding:0; height:100%; font-family: system-ui, sans-serif; }
+  #cesium { position:absolute; inset:0; }
+  #status { position:fixed; top:8px; right:8px; max-width:340px; background:rgba(0,0,0,.78);
+    color:#fff; padding:6px 10px; border-radius:6px; font-size:11px; line-height:1.4; z-index:1000; white-space:pre-line; }
+  .ok{background:rgba(40,130,40,.85)!important} .err{background:rgba(180,40,40,.9)!important}
+  #leg { position:fixed; bottom:34px; left:8px; background:rgba(8,12,18,.82); color:#cfe9f2;
+    padding:8px 10px; border-radius:6px; font-size:11px; z-index:1000; }
+  #leg .bar{height:10px;width:200px;border-radius:2px;margin:4px 0;
+    background:linear-gradient(90deg,#2b6cff,#13c08a,#ffb347,#ff5436);}
+  #leg .row{display:flex;justify-content:space-between;width:200px;color:#8fb3c0}
+</style>
+</head>
+<body>
+<div id="cesium"></div>
+<div id="status">Initializing</div>
+<div id="leg" style="display:none">
+  <div><b>ANNUAL ENERGY</b> — study block (kWh/yr)</div>
+  <div class="bar"></div>
+  <div class="row"><span id="lmin">low</span><span id="lmax">high</span></div>
+  <div style="margin-top:6px;color:#7da">grey = PLATEAU context</div>
+</div>
+
+<script>
+// ╔══════════════════════════════════════════════════════════════════════╗
+// ║  PASTE YOUR CESIUM ION TOKEN HERE  →  free at https://ion.cesium.com   ║
+// ║  (or pass it in the URL as  ?token=eyJ...  — that overrides this)      ║
+// ╚══════════════════════════════════════════════════════════════════════╝
+const ION_TOKEN = "YOUR_ION_TOKEN_HERE";
+
+// ---------------------------------------------------------------------------
+const params = new URLSearchParams(location.search);
+const TILES  = params.get('tiles') || 'plateau';     // plateau | google
+const METRIC = params.get('metric') || 'annual_energy_kwh';
+// Public PLATEAU ion token (works for PLATEAU/terrain only — NOT Google tiles)
+const PLATEAU_PUBLIC = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJiODVhMmQ5OS1hOWZjLTQ3YmYtODlmNi1lNWUwY2MwOGUxYTMiLCJpZCI6MTQ5ODk3LCJpYXQiOjE2ODc5MzQ3NDN9.OG0mc3i7ZxGwHQjlMv3TRjiOvKWpzxglxmJRaUIykTY';
+const userToken = params.get('token') || (ION_TOKEN !== "YOUR_ION_TOKEN_HERE" ? ION_TOKEN : null);
+const token = userToken || PLATEAU_PUBLIC;
+
+const PLATEAU_TEXTURED = 'https://assets.cms.plateau.reearth.io/assets/01/8c112f-4957-409a-9b43-d86308c7b74a/' +
+  '13102_chuo-ku_pref_2023_citygml_1_op_bldg_3dtiles_13102_chuo-ku_lod2/tileset.json';
+
+const STATUS = document.getElementById('status');
+const setStatus = (m, c) => { STATUS.textContent = m; STATUS.className = c || ''; console.log('[energy-cesium]', m); };
+
+const ramp = (t) => {  // 0..1 -> blue->green->amber->red (matches energy_view DATA mode)
+  const stops = [[43,108,255],[19,192,138],[255,179,71],[255,84,54]];
+  t = Math.max(0, Math.min(1, t)); const f = t*3, i = Math.min(2, Math.floor(f)), k = f-i;
+  const a=stops[i], b=stops[i+1];
+  return Cesium.Color.fromBytes(a[0]+(b[0]-a[0])*k, a[1]+(b[1]-a[1])*k, a[2]+(b[2]-a[2])*k, 235);
+};
+
+(async () => {
+  try {
+    Cesium.Ion.defaultAccessToken = token;
+    if (TILES === 'google' && !userToken) {
+      setStatus('Google tiles need YOUR ion token — paste it in ION_TOKEN or ?token=. Falling back to PLATEAU.', 'err');
+    }
+
+    setStatus('Loading energy scene');
+    const scene = await fetch('/energy/energy_scene.json').then(r => r.json());
+    const A_LAT = scene.meta.anchor_lat, A_LNG = scene.meta.anchor_lng;
+    const MLAT = 111320, MLNG = 111320 * Math.cos(A_LAT * Math.PI / 180);
+    const toLL = (x, z) => [A_LNG + x / MLNG, A_LAT + z / MLAT];
+
+    // study-block lat/lng footprints + metric range
+    const [mn, mx] = scene.metric_ranges[METRIC] || [0, 1];
+    const lats = [], lngs = [];
+    const studyPolys = scene.buildings.map(b => {
+      const flat = [];
+      b.poly.forEach(([x, z]) => { const [lng, lat] = toLL(x, z); flat.push(lng, lat); lats.push(lat); lngs.push(lng); });
+      return { b, flat };
+    });
+    document.getElementById('lmin').textContent = Math.round(mn).toLocaleString();
+    document.getElementById('lmax').textContent = Math.round(mx).toLocaleString();
+    document.getElementById('leg').style.display = '';
+
+    // block boundary = bbox of study footprints (+ small margin) for clipping context
+    const pad = 0.00012;
+    const bb = [[Math.min(...lngs)-pad, Math.min(...lats)-pad], [Math.max(...lngs)+pad, Math.min(...lats)-pad],
+                [Math.max(...lngs)+pad, Math.max(...lats)+pad], [Math.min(...lngs)-pad, Math.max(...lats)+pad]];
+    const bbFlat = bb.flat();
+    const cLng = (Math.min(...lngs)+Math.max(...lngs))/2, cLat = (Math.min(...lats)+Math.max(...lats))/2;
+
+    let terrainProvider;
+    try { terrainProvider = await Cesium.CesiumTerrainProvider.fromIonAssetId(3258112); }
+    catch { terrainProvider = new Cesium.EllipsoidTerrainProvider(); }
+
+    const viewer = new Cesium.Viewer('cesium', {
+      terrainProvider, baseLayerPicker:false, geocoder:false, homeButton:false,
+      sceneModePicker:false, navigationHelpButton:false, timeline:false, animation:false,
+      fullscreenButton:false, infoBox:true, selectionIndicator:true,
+    });
+    viewer.scene.skyBox = undefined; viewer.scene.skyAtmosphere = undefined;
+    viewer.camera.setView({
+      destination: Cesium.Cartesian3.fromDegrees(cLng, cLat - 0.0016, 380),
+      orientation: { heading: Cesium.Math.toRadians(10), pitch: Cesium.Math.toRadians(-42), roll: 0 },
+    });
+
+    // ---- context tiles (photoreal), clipped to EXCLUDE the study block ----
+    setStatus(TILES === 'google' && userToken ? 'Loading Google Photorealistic tiles' : 'Loading PLATEAU context');
+    let ctx;
+    try {
+      ctx = (TILES === 'google' && userToken)
+        ? await Cesium.createGooglePhotorealistic3DTileset()
+        : await Cesium.Cesium3DTileset.fromUrl(PLATEAU_TEXTURED, { maximumScreenSpaceError: 16 });
+      viewer.scene.primitives.add(ctx);
+      if (Cesium.ClippingPolygonCollection) {
+        ctx.clippingPolygons = new Cesium.ClippingPolygonCollection({
+          polygons: [ new Cesium.ClippingPolygon({ positions: Cesium.Cartesian3.fromDegreesArray(bbFlat) }) ],
+          inverse: false,   // clip what is INSIDE the block (our coloured buildings fill it)
+        });
+      }
+      setStatus('Context streaming. Study block coloured by energy.', 'ok');
+    } catch (e) {
+      setStatus('Context tiles failed: ' + (e.message || e) + '. Showing study block only.', 'err');
+      console.warn(e);
+    }
+
+    // ---- study buildings: extruded + coloured by metric (DATA mode) ----
+    for (const { b, flat } of studyPolys) {
+      const v = b[METRIC]; const t = (mx > mn) ? (v - mn) / (mx - mn) : 0.5;
+      viewer.entities.add({
+        name: 'Building ' + b.id,
+        description: `<b>Building ${b.id}</b><br>${b.use || ''} · ${b.program || ''}<br>` +
+          `Annual energy: ${Math.round(b.annual_energy_kwh).toLocaleString()} kWh/yr<br>` +
+          `Intensity: ${b.intensity} kWh/m²·yr · WWR ${b.wwr ?? '—'} · ${b.material ?? ''}`,
+        polygon: {
+          hierarchy: Cesium.Cartesian3.fromDegreesArray(flat),
+          material: ramp(t),
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          extrudedHeight: b.height, extrudedHeightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+          outline: true, outlineColor: Cesium.Color.fromCssColorString('#0b1014').withAlpha(0.6),
+        },
+      });
+    }
+    // block outline
+    viewer.entities.add({ polyline: {
+      positions: Cesium.Cartesian3.fromDegreesArray(bbFlat.concat([bb[0][0], bb[0][1]])),
+      width: 2, material: Cesium.Color.fromCssColorString('#35e0ff').withAlpha(0.6), clampToGround: true } });
+
+  } catch (err) {
+    setStatus('Error: ' + (err.message || err), 'err'); console.error(err);
+  }
+})();
+</script>
+</body>
+</html>
