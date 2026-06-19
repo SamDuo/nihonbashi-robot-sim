@@ -88,3 +88,13 @@ cache/
 outputs/terriajs/
 # Cesium diagnostic page (kept local only)
 outputs/cesium_test.html
+
+# --- PLATEAU 3D city source data (too big for GitHub; keep durable copies elsewhere) ---
+# 2.4GB raw library + the extracted per-tile sample. NEVER pushable (GitHub 100MB limit).
+data/modelLib.zip
+data/*.zip
+/model/
+# Node deps (puppeteer/gltf-transform, hundreds of MB)
+node_modules/
+# The optimized demo city mesh (~18MB, under the limit) IS committed via `git add -f`
+# even though outputs/twin/ is ignored above — so the twin works on a fresh clone.
