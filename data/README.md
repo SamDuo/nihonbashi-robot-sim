@@ -7,6 +7,7 @@ Canonical layer registry. Each subfolder has its own README with source URLs, CR
 | `heat_risk/` | Heat-scenario classifier output, joined to sidewalk segments | Sam, Qinghao | Small CSV / GeoJSON in repo; raw rasters in OneDrive |
 | `pedestrian/` | GPS, OD, density samples for the 200 m scene | Yi Tai | CSV in repo for samples; raw GPS in OneDrive |
 | `network/` | OSM sidewalk graph + SUMO `.net.xml` build | Yi Tai | Repo |
+| `network/nihonbashi_geometry.json` | WebGL-twin district geometry: official 日本橋* machi boundary union (10 admin_level=9 relations), 4,160 building footprints w/ heights (`src`: osm_height/osm_levels/estimated), classified roads, Nihonbashi River polygons. Local-meter frame anchored at `sim/testbed/scene.py` ANCHOR. Source: OpenStreetMap via Overpass, retrieved 2026-06-12, EPSG:4326 → local meters, **ODbL** (© OpenStreetMap contributors). Rebuild: `scripts/build_city_geometry.py` | Sam | Repo (raw Overpass cache gitignored) |
 | `robot_params/` | Variable matrix, baseline + proposal CSVs | All — see `CODEOWNERS` once added | Repo |
 
 ## Conventions

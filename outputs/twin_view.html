@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>NIHONBASHI-DT-01 — heat-risk digital twin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --cyan: #35e0ff; --green: #3ddc84; --amber: #ffb347; --red: #ff5436;
+    --chip: rgba(8, 12, 18, 0.78); --chip-border: rgba(80, 220, 255, 0.25);
+  }
+  html, body { margin: 0; height: 100%; background: #05070d; overflow: hidden;
+    font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace; }
+  #gl, #det { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #det { pointer-events: none; }
+  .hud { position: absolute; color: #cfe9f2; font-size: 11px; letter-spacing: 0.06em;
+    text-shadow: 0 1px 2px #000; user-select: none; z-index: 10; }
+  .chip { background: var(--chip); border: 1px solid var(--chip-border);
+    border-radius: 3px; padding: 6px 10px; }
+  #hud-tl { top: 12px; left: 12px; }
+  #hud-tl .title { color: var(--cyan); font-weight: 700; font-size: 12px; }
+  #hud-tl .clock { font-size: 30px; font-weight: 700; color: #fff; line-height: 1.1; }
+  #hud-tl .sub { color: #8fb3c0; margin-top: 2px; }
+  #hud-tr { top: 12px; right: 12px; text-align: right; }
+  #hud-tr .rec { color: var(--red); animation: blink 1.2s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0.15; } }
+  #hud-bl { bottom: 12px; left: 12px; }
+  #hud-br { bottom: 12px; right: 12px; text-align: right; color: #6f8896; }
+  #bars { display: flex; gap: 6px; margin-top: 5px; }
+  .bar { width: 52px; height: 5px; background: #14202a; border: 1px solid #1f3542; }
+  .bar i { display: block; height: 100%; background: var(--green); }
+  #ctl { bottom: 12px; left: 50%; transform: translateX(-50%); display: flex;
+    gap: 8px; align-items: center; pointer-events: auto; }
+  .btn { cursor: pointer; padding: 5px 9px; border: 1px solid var(--chip-border);
+    border-radius: 3px; background: var(--chip); color: #9fc4d2; font: inherit;
+    font-size: 10px; letter-spacing: 0.08em; }
+  .btn:hover { color: #fff; border-color: var(--cyan); }
+  .btn.on { color: #06141a; background: var(--cyan); border-color: var(--cyan); font-weight: 700; }
+  .btn.scen.on { background: var(--green); border-color: var(--green); }
+  #hour { width: 180px; accent-color: var(--cyan); }
+  .metric { color: var(--green); font-weight: 700; }
+  #loading { position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; color: var(--cyan); font-size: 13px; z-index: 50;
+    background: #05070d; letter-spacing: 0.2em; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="det"></canvas>
+<div id="loading">INITIALIZING NIHONBASHI-DT-01 …</div>
+
+<div class="hud chip" id="hud-tl">
+  <div class="title">NIHONBASHI-DT-01 · CHUO-KU</div>
+  <div class="clock" id="clock">--:--</div>
+  <div class="sub" id="scen-label">SCENARIO: —</div>
+  <div class="sub" id="heat-label">HEAT INDEX: —</div>
+</div>
+
+<div class="hud chip" id="hud-tr">
+  <div><span class="rec">●</span> REC <span id="rec-t">00:00:00</span></div>
+  <div class="sub" id="fps">— FPS</div>
+  <div class="sub">SIM ×<span id="spd-label">1</span> · 2026-05-25</div>
+</div>
+
+<div class="hud chip" id="hud-bl">
+  <div id="tracks">TRACKS — · PED — · ROB — · SHELTERED —</div>
+  <div id="metric-line">EXPOSURE Δ vs BASELINE: <span class="metric" id="expo">—</span></div>
+  <div id="bars">
+    <div class="bar" title="shelter_north"><i id="b0" style="width:0%"></i></div>
+    <div class="bar" title="shelter_mid"><i id="b1" style="width:0%"></i></div>
+    <div class="bar" title="shelter_south"><i id="b2" style="width:0%"></i></div>
+  </div>
+</div>
+
+<div class="hud chip" id="hud-br">
+  simulated + rendered live · stage one testbed data<br/>
+  mesa abm · 3 policies · nihonbashi heat-support robot<br/>
+  <span id="attrib">PLATEAU 3D city models + OSM (ODbL)</span>
+</div>
+
+<div class="hud" id="ctl">
+  <button class="btn scen" data-scen="baseline">BASELINE</button>
+  <button class="btn scen" data-scen="reactive">REACTIVE</button>
+  <button class="btn scen" data-scen="proactive">PROACTIVE</button>
+  <button class="btn" id="play">⏸</button>
+  <input id="hour" type="range" min="0" max="23.99" step="0.01" value="13" />
+  <button class="btn" id="spd">×1</button>
+  <button class="btn tog on" id="t-det">DET</button>
+  <button class="btn tog on" id="t-trk">TRK</button>
+  <button class="btn tog on" id="t-heat">HEAT</button>
+  <button class="btn tog" id="t-therm">THERM</button>
+  <button class="btn tog" id="t-auto">AUTO</button>
+</div>
+
+<script type="importmap">
+{ "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+
+addEventListener("unhandledrejection", (ev) => {
+  const el = document.getElementById("loading");
+  if (el) el.innerHTML =
+    `LOAD FAILED: ${ev.reason?.message ?? ev.reason}<br/><br/>` +
+    "generate twin data first:<br/>python scripts/run_testbed.py && " +
+    "python scripts/export_twin_frames.py<br/>" +
+    "then serve via: python scripts/serve_outputs.py";
+});
+
+// ---------------------------------------------------------------- data load
+const params = new URLSearchParams(location.search);
+const state = {
+  scenario: ["baseline", "reactive", "proactive"].includes(params.get("scenario"))
+    ? params.get("scenario") : "proactive",
+  simHour: Math.min(23.99, Math.max(0, parseFloat(params.get("hour") ?? "13"))),
+  speed: 1,
+  playing: true,
+  showDet: true, showTrk: true, showHeat: true, thermal: false, auto: false,
+};
+const SEC_PER_HOUR = 5;
+
+async function fetchJSON(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+  return r.json();
+}
+const scene3dData = await fetchJSON("twin/scene.json");
+const framesCache = {};
+async function loadFrames(s) {
+  framesCache[s] ??= await fetchJSON(`twin/frames_${s}.json`);
+  return framesCache[s];
+}
+let frames = await loadFrames(state.scenario);
+
+const GW = scene3dData.grid.w, GH = scene3dData.grid.h, CELL = scene3dData.grid.cell_m;
+const EXT_X = GW * CELL, EXT_Z = GH * CELL;
+const worldFromCell = (cx, cy) => [(cx + 0.5) * CELL, (cy + 0.5) * CELL];
+
+const BND = scene3dData.boundary;
+const PAD = 90;
+const GX0 = BND.bbox[0] - PAD, GZ0 = BND.bbox[1] - PAD;
+const GX1 = BND.bbox[2] + PAD, GZ1 = BND.bbox[3] + PAD;
+const GRD_W = GX1 - GX0, GRD_D = GZ1 - GZ0;
+const CTR_X = (GX0 + GX1) / 2, CTR_Z = (GZ0 + GZ1) / 2;
+
+function pointInPoly(x, z, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, zi] = poly[i], [xj, zj] = poly[j];
+    if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi)
+      inside = !inside;
+  }
+  return inside;
+}
+
+// ---------------------------------------------------------------- renderer
+const glCanvas = document.getElementById("gl");
+const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(46, 1, 1, 9000);
+camera.position.set(CTR_X - 240, 340, CTR_Z + 600);
+const controls = new OrbitControls(camera, glCanvas);
+controls.target.set(CTR_X, 35, CTR_Z);
+{
+  const cam = (params.get("cam") ?? "").split(",").map(Number);
+  if (cam.length === 6 && cam.every(Number.isFinite)) {
+    camera.position.set(cam[0], cam[1], cam[2]);
+    controls.target.set(cam[3], cam[4], cam[5]);
+  }
+}
+controls.maxPolarAngle = Math.PI * 0.49;
+controls.minDistance = 40; controls.maxDistance = 4500;
+controls.enableDamping = true;
+
+const hemi = new THREE.HemisphereLight(0xbfd9ff, 0x141a22, 0.9);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xffffff, 2.0);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+const SC = 700;
+Object.assign(sun.shadow.camera, { left: -SC, right: SC, top: SC, bottom: -SC, far: 2500 });
+scene.add(sun, sun.target);
+sun.target.position.set(CTR_X, 0, CTR_Z);
+
+// ---------------------------------------------------------------- ground
+// [asphalt, hasCenterLine, widthBoost] — asphalt is a mid grey so paved roads
+// read as light ribbons against the darker block/sidewalk base, the opposite of
+// the old dark-on-dark scheme that washed out under daylight.
+const ROAD_STYLE = {
+  motorway: ["#4a4f57", true, 1.15], trunk: ["#474c54", true, 1.1],
+  primary: ["#444953", true, 1.05], secondary: ["#3f444c", true, 1.0],
+  tertiary: ["#3a3f47", false, 0.95], unclassified: ["#363b43", false, 0.9],
+  residential: ["#363b43", false, 0.9], living_street: ["#34383f", false, 0.85],
+  service: ["#303339", false, 0.8],
+  pedestrian: ["#3c4048", false, 0.8], footway: ["#33373e", false, 0.6], cycleway: ["#2f3a40", false, 0.6],
+};
+const ROAD_ORDER = ["footway", "cycleway", "pedestrian", "service", "living_street",
+  "residential", "unclassified", "tertiary", "secondary", "primary", "trunk", "motorway"];
+
+function makeGroundTexture() {
+  const c = document.createElement("canvas");
+  const cw = 3200;
+  c.width = cw; c.height = Math.round(cw * GRD_D / GRD_W);
+  const g = c.getContext("2d");
+  const sx = c.width / GRD_W, sy = c.height / GRD_D;
+  const px = (x) => (x - GX0) * sx, pz = (z) => (z - GZ0) * sy;
+  // darker block/sidewalk base so paved roads stand out
+  g.fillStyle = "#202329"; g.fillRect(0, 0, c.width, c.height);
+  for (let i = 0; i < 16000; i++) {                    // asphalt/pavement grain
+    const v = Math.random() < 0.5 ? 255 : 0;
+    g.fillStyle = `rgba(${v},${v},${v},${Math.random() * 0.025})`;
+    g.fillRect(Math.random() * c.width, Math.random() * c.height, 2, 2);
+  }
+  for (const wpoly of scene3dData.water ?? []) {
+    g.fillStyle = "#0b1d2e";
+    g.beginPath();
+    wpoly.poly.forEach(([x, z], i) => i ? g.lineTo(px(x), pz(z)) : g.moveTo(px(x), pz(z)));
+    g.closePath(); g.fill();
+    g.strokeStyle = "rgba(80,160,210,0.25)"; g.lineWidth = 2; g.stroke();
+  }
+  const roads = scene3dData.roads ?? [];
+  const tracePath = (r) => {
+    g.beginPath();
+    r.pts.forEach(([x, z], i) => i ? g.lineTo(px(x), pz(z)) : g.moveTo(px(x), pz(z)));
+  };
+  const rw = (r) => Math.max(r.w * (ROAD_STYLE[r.cls]?.[2] ?? 0.8), 3.5);
+  const drawRoad = (r, mode) => {            // mode: "casing" | "fill" | "sidewalk"
+    g.lineCap = "round"; g.lineJoin = "round";
+    if (mode === "sidewalk") { g.strokeStyle = "#3b4048"; g.lineWidth = (rw(r) + 4.5) * sx; }
+    else if (mode === "casing") { g.strokeStyle = "#0a0d12"; g.lineWidth = (rw(r) + 2.0) * sx; }
+    else { g.strokeStyle = ROAD_STYLE[r.cls]?.[0] ?? "#363b43"; g.lineWidth = rw(r) * sx; }
+    tracePath(r); g.stroke();
+  };
+  // paved-road pass: sidewalk halo (wide roads), dark casing, asphalt fill
+  for (const r of roads) if (!r.bridge && (ROAD_STYLE[r.cls]?.[2] ?? 0) >= 0.95) drawRoad(r, "sidewalk");
+  for (const cls of ROAD_ORDER)
+    for (const r of roads) if (!r.bridge && r.cls === cls) drawRoad(r, "casing");
+  for (const cls of ROAD_ORDER)
+    for (const r of roads) if (!r.bridge && r.cls === cls) drawRoad(r, "fill");
+  for (const r of roads) if (r.bridge) { drawRoad(r, "casing"); drawRoad(r, "fill"); }
+  // white lane edge lines on the bigger roads
+  g.strokeStyle = "rgba(225,228,232,0.30)"; g.lineCap = "butt";
+  for (const r of roads) {
+    if ((ROAD_STYLE[r.cls]?.[2] ?? 0) < 1.0 || r.bridge) continue;
+    g.lineWidth = Math.max(1.2, rw(r) * sx * 0.06);
+    tracePath(r); g.stroke();
+  }
+  // dashed yellow centre line on roads that carry one
+  g.setLineDash([16, 20]); g.lineWidth = 1.8;
+  g.strokeStyle = "rgba(232,206,120,0.55)";
+  for (const r of roads) {
+    if (!ROAD_STYLE[r.cls]?.[1] || r.bridge) continue;
+    tracePath(r); g.stroke();
+  }
+  g.setLineDash([]);
+  // crosswalks + stop bars at road junctions (>=3 legs meet at a shared node)
+  const jmap = new Map();
+  const jkey = (x, z) => `${Math.round(x)},${Math.round(z)}`;
+  for (const r of roads) {
+    if (r.bridge || (ROAD_STYLE[r.cls]?.[2] ?? 0) < 0.85) continue;  // paved only
+    const w = rw(r);
+    for (let i = 0; i < r.pts.length; i++) {
+      const [x, z] = r.pts[i];
+      const k = jkey(x, z);
+      let j = jmap.get(k);
+      if (!j) { j = { x, z, w: 0, dirs: [] }; jmap.set(k, j); }
+      j.w = Math.max(j.w, w);
+      if (i > 0)              j.dirs.push(Math.atan2(r.pts[i-1][1] - z, r.pts[i-1][0] - x));
+      if (i < r.pts.length-1) j.dirs.push(Math.atan2(r.pts[i+1][1] - z, r.pts[i+1][0] - x));
+    }
+  }
+  const crosswalk = (pcx, pcy, theta, wpx) => {
+    const cxp = pcx + Math.cos(theta) * (wpx * 0.5 + 5 * sx);
+    const cyp = pcy + Math.sin(theta) * (wpx * 0.5 + 5 * sx);
+    g.save(); g.translate(cxp, cyp); g.rotate(theta);   // local x=travel, y=across
+    g.fillStyle = "rgba(222,226,230,0.5)";
+    const depth = 4.2 * sx, half = wpx * 0.5, sw = 0.55 * sx, step = 1.25 * sx;
+    for (let y = -half + step * 0.5; y < half - sw; y += step) g.fillRect(-depth/2, y, depth, sw);
+    g.fillRect(depth/2 + 1.0 * sx, -half, 0.8 * sx, wpx);  // stop bar
+    g.restore();
+  };
+  for (const j of jmap.values()) {
+    if (j.dirs.length < 3 || j.w < 5) continue;          // real, paved intersections
+    const used = [];
+    for (const d of j.dirs) {
+      if (used.some(u => Math.abs(Math.atan2(Math.sin(d - u), Math.cos(d - u))) < 0.3)) continue;
+      used.push(d);
+      crosswalk(px(j.x), pz(j.z), d, j.w * sx);
+    }
+  }
+  g.fillStyle = "rgba(2,4,8,0.42)";
+  g.beginPath();
+  g.rect(0, 0, c.width, c.height);
+  BND.poly.forEach(([x, z], i) => i ? g.lineTo(px(x), pz(z)) : g.moveTo(px(x), pz(z)));
+  g.closePath(); g.fill("evenodd");
+  g.strokeStyle = "rgba(53,224,255,0.55)"; g.lineWidth = 3;
+  g.beginPath();
+  BND.poly.forEach(([x, z], i) => i ? g.lineTo(px(x), pz(z)) : g.moveTo(px(x), pz(z)));
+  g.closePath(); g.stroke();
+  g.setLineDash([10, 12]); g.strokeStyle = "rgba(61,220,132,0.45)"; g.lineWidth = 2;
+  g.strokeRect(px(0), pz(0), EXT_X * sx, EXT_Z * sy);
+  g.setLineDash([]);
+  const tx = new THREE.CanvasTexture(c);
+  tx.anisotropy = 8;
+  return tx;
+}
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(GRD_W, GRD_D),
+  new THREE.MeshStandardMaterial({ map: makeGroundTexture(), roughness: 0.96 })
+);
+ground.rotateX(-Math.PI / 2);
+ground.position.set(CTR_X, 0, CTR_Z);
+ground.receiveShadow = true;
+scene.add(ground);
+const apron = new THREE.Mesh(
+  new THREE.PlaneGeometry(GRD_W * 4, GRD_D * 4),
+  new THREE.MeshStandardMaterial({ color: 0x0d1014, roughness: 1 })
+);
+apron.rotateX(-Math.PI / 2);
+apron.position.set(CTR_X, -0.2, CTR_Z);
+scene.add(apron);
+
+// ---------------------------------------------------------------- heat layer
+const heatCanvas = document.createElement("canvas");
+heatCanvas.width = GW; heatCanvas.height = GH;
+const heatCtx = heatCanvas.getContext("2d");
+const heatTex = new THREE.CanvasTexture(heatCanvas);
+heatTex.magFilter = THREE.LinearFilter;
+const heatMat = new THREE.MeshBasicMaterial({
+  map: heatTex, transparent: true, depthWrite: false, opacity: 1,
+});
+const heatPlane = new THREE.Mesh(new THREE.PlaneGeometry(EXT_X, EXT_Z), heatMat);
+heatPlane.rotateX(-Math.PI / 2);
+heatPlane.position.set(EXT_X / 2, 0.25, EXT_Z / 2);
+scene.add(heatPlane);
+
+function heatColor(v, thermal) {
+  const stops = thermal
+    ? [[0.0, 10, 8, 40, 0.85], [0.6, 70, 20, 110, 0.85], [1.0, 200, 60, 30, 0.88],
+       [1.5, 255, 140, 20, 0.9], [2.0, 255, 240, 180, 0.95]]
+    : [[0.0, 40, 90, 160, 0.0], [0.5, 60, 140, 200, 0.10], [1.0, 255, 170, 40, 0.28],
+       [1.5, 255, 90, 30, 0.45], [2.0, 255, 25, 10, 0.62]];
+  let a = stops[0], b = stops[stops.length - 1];
+  for (let i = 0; i < stops.length - 1; i++)
+    if (v >= stops[i][0] && v <= stops[i + 1][0]) { a = stops[i]; b = stops[i + 1]; break; }
+  const t = b[0] === a[0] ? 0 : (v - a[0]) / (b[0] - a[0]);
+  const mix = (i) => a[i] + (b[i] - a[i]) * Math.min(1, Math.max(0, t));
+  return [mix(1) | 0, mix(2) | 0, mix(3) | 0, mix(4)];
+}
+let lastHeatKey = "";
+function updateHeat(hour) {
+  const h0 = Math.floor(hour) % 24;
+  const key = `${h0}|${state.thermal}|${state.showHeat}`;
+  if (key === lastHeatKey) return;
+  lastHeatKey = key;
+  const img = heatCtx.createImageData(GW, GH);
+  for (let x = 0; x < GW; x++) for (let y = 0; y < GH; y++) {
+    const v = frames.heat[h0][x][y];
+    const [r, g, b, a] = heatColor(v, state.thermal);
+    const i = (y * GW + x) * 4;
+    img.data[i] = r; img.data[i + 1] = g; img.data[i + 2] = b;
+    img.data[i + 3] = state.showHeat ? a * 255 : 0;
+  }
+  heatCtx.putImageData(img, 0, 0);
+  heatTex.needsUpdate = true;
+}
+
+// ---------------------------------------------------------------- PLATEAU 3D buildings
+// All ~4,900 real Nihonbashi buildings (PLATEAU LOD00 / "modelLib") are welded
+// offline into ONE Draco-compressed mesh (scripts/merge_plateau_city.py): 3.1M
+// triangles, 13 MB, one draw call, no textures — so it loads fast and renders on
+// a modest GPU where thousands of textured glTFs would not. The mesh is recentred
+// on its own footprint (ground at Y=0); here we drop it onto the district centre.
+// Tuning params: ?rot=<deg> spins it, ?dx / ?dz nudge it, ?cityscale=<f> scales.
+// georeference: OSM streets run at ~63°, PLATEAU building grid at ~28°, so rotate
+// the welded city -35° to lay its grid parallel to the real Nihonbashi streets.
+const cityRotDeg = parseFloat(params.get("rot") ?? "-35");
+const cityDX = parseFloat(params.get("dx") ?? "0");
+const cityDZ = parseFloat(params.get("dz") ?? "0");
+const cityScale = parseFloat(params.get("cityscale") ?? "1");
+
+// Building material: clean stone-grey PBR, with procedurally-lit windows at night
+// and a soft street-level ambient-occlusion gradient — derived in-shader from world
+// position + normal so it works on the merged geometry with no per-building data.
+const cityUniforms = { uNight: { value: 0 }, uLit: { value: 0 }, uTherm: { value: 0 } };
+const cityMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.86, metalness: 0.05 });
+cityMat.onBeforeCompile = (sh) => {
+  Object.assign(sh.uniforms, cityUniforms);
+  sh.vertexShader = sh.vertexShader
+    .replace("#include <common>", `#include <common>
+      varying vec3 vWPos; varying vec3 vWNorm;`)
+    .replace("#include <fog_vertex>", `#include <fog_vertex>
+      vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+      vWNorm = normalize(mat3(modelMatrix) * objectNormal);`);
+  sh.fragmentShader = sh.fragmentShader
+    .replace("#include <common>", `#include <common>
+      uniform float uNight; uniform float uLit; uniform float uTherm;
+      varying vec3 vWPos; varying vec3 vWNorm;
+      float gWin = 0.0; vec3 gWinCol = vec3(0.0);
+      float bhash(vec3 p){ return fract(sin(dot(p, vec3(12.9898,78.233,37.719)))*43758.5453); }`)
+    .replace("#include <color_fragment>", `#include <color_fragment>
+      {
+        float roof = step(0.55, abs(vWNorm.y));
+        float wall = 1.0 - roof;
+        float useX = step(abs(vWNorm.x), abs(vWNorm.z));
+        float lateral = mix(vWPos.z, vWPos.x, useX);
+        // window grid: ~3.4m bays, ~3.3m floors
+        vec2 wc = vec2(lateral / 3.4, vWPos.y / 3.3);
+        vec2 cell = floor(wc); vec2 fr = fract(wc);
+        // per-area seed from the building block (no per-building attribute needed)
+        float seed = bhash(vec3(floor(vWPos.xz / 12.0), 1.0));
+        float rnd = bhash(vec3(cell, seed * 97.0));
+        float pane = step(0.16, fr.x) * step(fr.x, 0.84) * step(0.22, fr.y) * step(fr.y, 0.86);
+        // diffuseColor already carries the real baked PLATEAU colour (COLOR_0).
+        // Add only a saturation pop + subtle per-building/street variation.
+        float tint = bhash(vec3(seed * 53.0, 7.1, 3.3));
+        float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+        diffuseColor.rgb = mix(vec3(lum), diffuseColor.rgb, 1.12);    // gentle +saturation
+        diffuseColor.rgb *= (0.94 + 0.10 * tint);
+        diffuseColor.rgb *= (0.90 + 0.10 * bhash(vec3(seed * 31.0, cell)));
+        diffuseColor.rgb *= (0.74 + 0.26 * clamp(vWPos.y / 30.0, 0.0, 1.0));
+        diffuseColor.rgb *= mix(1.0, 0.66, roof);
+        // daytime facade: recessed glazed panes + darker mullion grid on walls
+        float glass = pane * wall;
+        vec3 glassCol = diffuseColor.rgb * mix(vec3(0.50,0.56,0.66), vec3(0.30,0.40,0.55), tint);
+        diffuseColor.rgb = mix(diffuseColor.rgb, glassCol, glass * 0.82);
+        diffuseColor.rgb *= mix(1.0, 0.80, (1.0 - pane) * wall);   // mullions/spandrels
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.012, 0.016, 0.03), uTherm);
+        // night: random lit windows
+        gWin = step(1.0 - uLit, rnd) * pane * wall * (1.0 - uTherm);
+        gWinCol = mix(vec3(1.0, 0.78, 0.45), vec3(0.62, 0.85, 1.0), step(0.9, rnd));
+      }`)
+    .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+      totalEmissiveRadiance += gWinCol * gWin * uNight * 1.15;`);
+};
+
+{
+  const draco = new DRACOLoader();
+  draco.setDecoderPath("https://unpkg.com/three@0.160.0/examples/jsm/libs/draco/");
+  const gltfLoader = new GLTFLoader();
+  gltfLoader.setDRACOLoader(draco);
+  const loadEl = document.getElementById("loading");
+  const file = "twin/plateau/nihonbashi_city.glb";
+  console.log(`[plateau] loading welded city ${file}`);
+
+  gltfLoader.load(file, (gltf) => {
+    const root = gltf.scene;
+    root.traverse(child => {
+      if (!child.isMesh) return;
+      child.material = cityMat;
+      child.castShadow = false;       // 3.1M-tri shadow pass is too heavy per-frame
+      child.receiveShadow = false;
+      child.frustumCulled = true;
+    });
+    // centre the city on the agent/heat grid (not the larger boundary box) so
+    // the welded mesh sits directly over the heat plane and pedestrian tracks.
+    const cityCX = EXT_X / 2 + cityDX, cityCZ = EXT_Z / 2 + cityDZ;
+    root.position.set(cityCX, 0, cityCZ);
+    root.rotation.y = cityRotDeg * Math.PI / 180;
+    root.scale.setScalar(cityScale);
+    scene.add(root);
+    draco.dispose();
+    if (loadEl?.parentNode) loadEl.remove();
+
+    const box = new THREE.Box3().setFromObject(root);
+    console.log(`[plateau] city placed at (${cityCX.toFixed(0)},${cityCZ.toFixed(0)})`,
+      `bounds X[${box.min.x.toFixed(0)},${box.max.x.toFixed(0)}]`,
+      `Z[${box.min.z.toFixed(0)},${box.max.z.toFixed(0)}] H${box.max.y.toFixed(0)}m`);
+  },
+  (progress) => {
+    if (progress.total && loadEl?.parentNode) {
+      const pct = Math.round(progress.loaded / progress.total * 100);
+      loadEl.textContent = `LOADING NIHONBASHI · ${pct}%`;
+    }
+  },
+  (err) => {
+    console.warn(`[plateau] failed ${file}:`, err);
+    if (loadEl) loadEl.textContent = "CITY MESH LOAD FAILED — see console";
+  });
+}
+
+// district boundary light wall
+var boundaryWallMat;
+{
+  const H = 26, p = BND.poly, n = p.length;
+  const pos = new Float32Array((n + 1) * 2 * 3), uv = new Float32Array((n + 1) * 2 * 2);
+  for (let i = 0; i <= n; i++) {
+    const [x, z] = p[i % n];
+    pos.set([x, 0, z, x, H, z], i * 6);
+    uv.set([i / n, 0, i / n, 1], i * 4);
+  }
+  const idx = [];
+  for (let i = 0; i < n; i++) {
+    const a = i * 2, b = i * 2 + 1, c2 = i * 2 + 2, d = i * 2 + 3;
+    idx.push(a, c2, b, b, c2, d);
+  }
+  const wallGeo = new THREE.BufferGeometry();
+  wallGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  wallGeo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+  wallGeo.setIndex(idx);
+  boundaryWallMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    uniforms: { uI: { value: 0.3 } },
+    vertexShader: `varying vec2 vUv;
+      void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: `varying vec2 vUv; uniform float uI;
+      void main(){ gl_FragColor = vec4(0.21, 0.88, 1.0, (1.0 - vUv.y) * uI); }`,
+  });
+  scene.add(new THREE.Mesh(wallGeo, boundaryWallMat));
+}
+
+// shelters
+const shelterMeshes = [];
+for (const s of scene3dData.shelters) {
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(s.w, s.h, s.d),
+    new THREE.MeshStandardMaterial({ color: 0x13262c, roughness: 0.6,
+      emissive: 0x19e3d2, emissiveIntensity: 0.35 })
+  );
+  body.position.set(s.x, s.h / 2, s.z);
+  body.castShadow = true;
+  const beacon = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.4, 1.4, 5, 10),
+    new THREE.MeshBasicMaterial({ color: 0x35ffd9 })
+  );
+  beacon.position.set(s.x, s.h + 2.5, s.z);
+  scene.add(body, beacon);
+  shelterMeshes.push({ id: s.id, mesh: body, beacon, x: s.x, z: s.z, h: s.h });
+}
+
+// streetlights
+const glowTex = (() => {
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const g = c.getContext("2d");
+  const grad = g.createRadialGradient(32, 32, 2, 32, 32, 30);
+  grad.addColorStop(0, "rgba(255,196,120,0.9)");
+  grad.addColorStop(1, "rgba(255,196,120,0)");
+  g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+})();
+const lampGlows = [], lampLights = [];
+{
+  const lampPts = [];
+  const LAMP_CLASSES = new Set(["trunk", "primary", "secondary", "pedestrian"]);
+  for (const r of scene3dData.roads ?? []) {
+    if (!LAMP_CLASSES.has(r.cls) || r.bridge) continue;
+    let carry = 30;
+    for (let i = 1; i < r.pts.length && lampPts.length < 320; i++) {
+      const [x0, z0] = r.pts[i - 1], [x1, z1] = r.pts[i];
+      const seg = Math.hypot(x1 - x0, z1 - z0);
+      let d = carry;
+      while (d < seg) {
+        const t = d / seg, x = x0 + (x1 - x0) * t, z = z0 + (z1 - z0) * t;
+        if (pointInPoly(x, z, BND.poly)) lampPts.push([x, z]);
+        d += 65;
+      }
+      carry = d - seg;
+    }
+  }
+  const poleGeo = new THREE.CylinderGeometry(0.25, 0.3, 9, 6);
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x30343a });
+  const poles = new THREE.InstancedMesh(poleGeo, poleMat, lampPts.length);
+  const m4 = new THREE.Matrix4();
+  lampPts.forEach(([x, z], i) => {
+    m4.makeTranslation(x, 4.5, z);
+    poles.setMatrixAt(i, m4);
+    const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 }));
+    spr.scale.set(9, 9, 1); spr.position.set(x, 9.4, z);
+    scene.add(spr); lampGlows.push(spr.material);
+  });
+  scene.add(poles);
+  const ranked = [...lampPts].sort((a, b) =>
+    Math.hypot(a[0] - EXT_X / 2, a[1] - EXT_Z / 2) - Math.hypot(b[0] - EXT_X / 2, b[1] - EXT_Z / 2));
+  for (const [x, z] of ranked.slice(0, 8)) {
+    const pl = new THREE.PointLight(0xffb869, 0, 90, 1.8);
+    pl.position.set(x, 9, z);
+    scene.add(pl); lampLights.push(pl);
+  }
+}
+
+// ---------------------------------------------------------------- streetscape (3D)
+// Raised sidewalks/curbs buffered from the road centrelines, plus instanced
+// street trees along the kerb line. Geometry is limited to the district boundary
+// to stay light. Trees double as the heat/shade lever (shade analytics = next step).
+{
+  const roads = scene3dData.roads ?? [];
+  const PAVED = new Set(["motorway", "trunk", "primary", "secondary", "tertiary",
+    "unclassified", "residential", "living_street", "pedestrian"]);
+
+  // --- raised sidewalks + curbs (one merged mesh) ---
+  const SW = 3.0, CURB = 0.18;
+  const sv = [];
+  const tri = (a, b, c) => sv.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+  const quad = (a, b, c, d) => { tri(a, b, c); tri(a, c, d); };
+  for (const r of roads) {
+    if (r.bridge || !PAVED.has(r.cls) || (r.w ?? 0) < 4) continue;
+    const half = r.w / 2;
+    for (let i = 1; i < r.pts.length; i++) {
+      const [x0, z0] = r.pts[i - 1], [x1, z1] = r.pts[i];
+      if (!pointInPoly((x0 + x1) / 2, (z0 + z1) / 2, BND.poly)) continue;
+      const dx = x1 - x0, dz = z1 - z0, len = Math.hypot(dx, dz) || 1;
+      const px = -dz / len, pz = dx / len;            // perpendicular in XZ
+      for (const s of [1, -1]) {
+        const iA = [x0 + px * half * s, CURB, z0 + pz * half * s];
+        const iB = [x1 + px * half * s, CURB, z1 + pz * half * s];
+        const oA = [x0 + px * (half + SW) * s, CURB, z0 + pz * (half + SW) * s];
+        const oB = [x1 + px * (half + SW) * s, CURB, z1 + pz * (half + SW) * s];
+        quad(iA, iB, oB, oA);                          // sidewalk top
+        quad([iA[0], 0, iA[2]], [iB[0], 0, iB[2]], iB, iA);   // kerb face (road side)
+      }
+    }
+  }
+  if (sv.length) {
+    const sgeo = new THREE.BufferGeometry();
+    sgeo.setAttribute("position", new THREE.Float32BufferAttribute(sv, 3));
+    sgeo.computeVertexNormals();
+    const swMesh = new THREE.Mesh(sgeo, new THREE.MeshStandardMaterial({
+      color: 0x747a83, roughness: 0.97, side: THREE.DoubleSide }));
+    swMesh.position.y = 0.02; swMesh.receiveShadow = true;
+    scene.add(swMesh);
+    console.log(`[street] sidewalks: ${sv.length / 9 | 0} tris`);
+  }
+
+  // --- instanced street trees along the kerb ---
+  const TREE_CLS = new Set(["trunk", "primary", "secondary", "tertiary",
+    "residential", "pedestrian"]);
+  const treePts = [];
+  for (const r of roads) {
+    if (r.bridge || !TREE_CLS.has(r.cls)) continue;
+    const off = (r.w ?? 8) / 2 + 1.4;
+    let carry = 11;
+    for (let i = 1; i < r.pts.length && treePts.length < 760; i++) {
+      const [x0, z0] = r.pts[i - 1], [x1, z1] = r.pts[i];
+      const dx = x1 - x0, dz = z1 - z0, seg = Math.hypot(dx, dz) || 1;
+      const px = -dz / seg, pz = dx / seg;
+      let d = carry;
+      while (d < seg && treePts.length < 760) {
+        const t = d / seg, cx = x0 + dx * t, cz = z0 + dz * t;
+        for (const s of [1, -1]) {
+          const tx = cx + px * off * s, tz = cz + pz * off * s;
+          if (pointInPoly(tx, tz, BND.poly)) treePts.push([tx, tz]);
+        }
+        d += 23;
+      }
+      carry = d - seg;
+    }
+  }
+  if (treePts.length) {
+    const trunkGeo = new THREE.CylinderGeometry(0.16, 0.26, 4.0, 6);
+    trunkGeo.translate(0, 2.0, 0);
+    const trunks = new THREE.InstancedMesh(trunkGeo,
+      new THREE.MeshStandardMaterial({ color: 0x5a4631, roughness: 0.9 }), treePts.length);
+    const canopyGeo = new THREE.IcosahedronGeometry(2.3, 1);
+    const canopies = new THREE.InstancedMesh(canopyGeo,
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, flatShading: true }),
+      treePts.length);
+    const dum = new THREE.Object3D(), col = new THREE.Color();
+    treePts.forEach(([x, z], i) => {
+      const h = 0.85 + Math.abs(Math.sin(x * 0.7 + z * 0.31)) * 0.55;   // height var
+      const w = 0.85 + Math.abs(Math.cos(x * 0.5 - z * 0.62)) * 0.5;    // width var
+      dum.position.set(x, CURB, z); dum.rotation.set(0, x + z, 0);
+      dum.scale.set(w, h, w); dum.updateMatrix();
+      trunks.setMatrixAt(i, dum.matrix);
+      const cs = 0.9 + w * 0.5;
+      dum.position.set(x, CURB + 4.0 * h + 1.4, z); dum.rotation.set(0, x * 1.3, z * 0.7);
+      dum.scale.set(cs, cs * 1.08, cs); dum.updateMatrix();
+      canopies.setMatrixAt(i, dum.matrix);
+      col.setHSL(0.27 + 0.04 * Math.sin(x * 0.2 + z), 0.45, 0.26 + 0.07 * Math.abs(Math.cos(x)));
+      canopies.setColorAt(i, col);
+    });
+    canopies.instanceColor.needsUpdate = true;
+    scene.add(trunks, canopies);
+    console.log(`[street] trees: ${treePts.length}`);
+  }
+}
+
+// ---------------------------------------------------------------- entities
+const STATUS_COLOR = [new THREE.Color(0x7a8699), new THREE.Color(0xffb347),
+                      new THREE.Color(0x3ddc84), new THREE.Color(0xffffff)];
+const NUM_A = frames.agents.length;
+const pedGeo = new THREE.CapsuleGeometry(1.0, 1.8, 3, 8);
+pedGeo.translate(0, 1.9, 0);
+const pedMat = new THREE.MeshStandardMaterial({ roughness: 0.7 });
+const peds = new THREE.InstancedMesh(pedGeo, pedMat, NUM_A);
+peds.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+peds.castShadow = true;
+scene.add(peds);
+
+const robotMeshes = [];
+for (let i = 0; i < frames.robots.length; i++) {
+  const grp = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.1, 2.2),
+    new THREE.MeshStandardMaterial({ color: 0xdfe5ea, roughness: 0.4 }));
+  body.position.y = 0.95; body.castShadow = true;
+  const strip = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.18, 2.3),
+    new THREE.MeshBasicMaterial({ color: 0x35e0ff }));
+  strip.position.y = 1.45;
+  grp.add(body, strip);
+  scene.add(grp);
+  robotMeshes.push({ grp, strip });
+}
+
+function hash01(str, salt) {
+  let h = 2166136261 ^ salt;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return ((h >>> 0) % 1000) / 1000;
+}
+const jitter = frames.agents.map(a =>
+  [ (hash01(a.id, 1) - 0.5) * 34, (hash01(a.id, 7) - 0.5) * 34, hash01(a.id, 13) * Math.PI * 2 ]);
+
+const smooth = (t) => t * t * (3 - 2 * t);
+function trackPos(cells, hour, jx, jz) {
+  const h0 = Math.floor(hour) % 24, h1 = (h0 + 1) % 24;
+  const t = smooth(hour - Math.floor(hour));
+  const [x0, z0] = worldFromCell(cells[h0][0], cells[h0][1]);
+  const [x1, z1] = worldFromCell(cells[h1][0], cells[h1][1]);
+  const moving = (cells[h0][0] !== cells[h1][0]) || (cells[h0][1] !== cells[h1][1]);
+  return [x0 + (x1 - x0) * t + jx, z0 + (z1 - z0) * t + jz, moving, cells[h0][2]];
+}
+
+const trails = new Map();
+function pushTrail(id, x, y, z, simT) {
+  let tr = trails.get(id);
+  if (!tr) { tr = []; trails.set(id, tr); }
+  const last = tr[tr.length - 1];
+  if (!last || Math.hypot(last[0] - x, last[2] - z) > 1.2) {
+    tr.push([x, y, z, simT]);
+    if (tr.length > 50) tr.shift();
+  }
+}
+
+// ---------------------------------------------------------------- day/night
+const SKY = [
+  [0, 4, 7, 18], [4.5, 4, 7, 18], [6, 120, 60, 50], [7.5, 158, 190, 224],
+  [12, 148, 188, 235], [16.5, 168, 165, 195], [18.5, 185, 60, 38],
+  [20, 30, 18, 40], [21.5, 4, 7, 18], [24, 4, 7, 18]];
+function skyColor(h) {
+  let a = SKY[0], b = SKY[SKY.length - 1];
+  for (let i = 0; i < SKY.length - 1; i++)
+    if (h >= SKY[i][0] && h <= SKY[i + 1][0]) { a = SKY[i]; b = SKY[i + 1]; break; }
+  const t = b[0] === a[0] ? 0 : (h - a[0]) / (b[0] - a[0]);
+  return new THREE.Color(
+    (a[1] + (b[1] - a[1]) * t) / 255,
+    (a[2] + (b[2] - a[2]) * t) / 255,
+    (a[3] + (b[3] - a[3]) * t) / 255);
+}
+scene.fog = new THREE.Fog(0x05070d, 1100, 4200);
+
+function updateEnvironment(hour) {
+  const sunAng = ((hour - 6) / 12) * Math.PI;
+  const elev = Math.sin(sunAng);
+  const day = Math.max(0, Math.min(1, elev * 2.2));
+  const night = 1 - Math.max(0, Math.min(1, (elev + 0.12) * 4));
+  sun.position.set(
+    CTR_X + Math.cos(sunAng) * 900,
+    Math.max(8, elev * 800),
+    CTR_Z - 320);
+  sun.intensity = day * 2.7;
+  sun.color.setHSL(0.085, 0.8, Math.min(0.92, 0.45 + day * 0.5));
+  hemi.intensity = 0.12 + day * 0.62;
+  const sky = state.thermal ? new THREE.Color(0x02030a) : skyColor(hour % 24);
+  scene.background = sky;
+  scene.fog.color = sky;
+  cityUniforms.uNight.value = night;
+  cityUniforms.uTherm.value = state.thermal ? 1 : 0;
+  const lateNight = (hour >= 23.5 || hour < 5);
+  cityUniforms.uLit.value = night * (lateNight ? 0.1 : 0.3);
+  boundaryWallMat.uniforms.uI.value = state.thermal ? 0.5 : 0.14 + night * 0.3;
+  for (const m of lampGlows) m.opacity = night * (state.thermal ? 0.1 : 0.55);
+  for (const l of lampLights) l.intensity = night * 60;
+  const pulse = 0.35 + 0.25 * Math.sin(performance.now() / 300);
+  for (const s of shelterMeshes) s.mesh.material.emissiveIntensity = 0.18 + night * pulse;
+  return night;
+}
+
+// ---------------------------------------------------------------- detection HUD
+const det = document.getElementById("det");
+const dctx = det.getContext("2d");
+const v3 = new THREE.Vector3();
+function project(x, y, z, w, h) {
+  v3.set(x, y, z).project(camera);
+  if (v3.z > 1) return null;
+  return [(v3.x * 0.5 + 0.5) * w, (-v3.y * 0.5 + 0.5) * h];
+}
+function drawDetections(entities, w, h) {
+  dctx.clearRect(0, 0, w, h);
+  if (state.showTrk) {
+    dctx.lineWidth = 1;
+    for (const e of entities) {
+      const tr = trails.get(e.id);
+      if (!tr || tr.length < 2) continue;
+      dctx.strokeStyle = e.cls === "ROB" ? "rgba(255,165,59,0.4)" : "rgba(53,224,255,0.30)";
+      dctx.beginPath();
+      let started = false;
+      for (const p of tr) {
+        const s = project(p[0], 0.4, p[2], w, h);
+        if (!s) { started = false; continue; }
+        if (!started) { dctx.moveTo(s[0], s[1]); started = true; }
+        else dctx.lineTo(s[0], s[1]);
+      }
+      dctx.stroke();
+    }
+  }
+  if (!state.showDet) return;
+  dctx.font = "10px monospace";
+  const camPos = camera.position;
+  let drawn = 0;
+  for (const e of entities) {
+    if (drawn > 160) break;
+    const d2 = (e.x - camPos.x) ** 2 + (e.z - camPos.z) ** 2;
+    if (d2 > 480 * 480) continue;
+    const top = project(e.x, e.h, e.z, w, h);
+    const bot = project(e.x, 0, e.z, w, h);
+    if (!top || !bot) continue;
+    const bh = Math.max(8, bot[1] - top[1]);
+    const bw = Math.max(6, bh * e.aspect);
+    const x = bot[0] - bw / 2, y = top[1];
+    if (x < -50 || x > w + 50 || y < -50 || y > h + 50) continue;
+    const col = e.color;
+    dctx.strokeStyle = col; dctx.lineWidth = 1;
+    dctx.strokeRect(x, y, bw, bh);
+    const label = `${e.label} ${e.conf}`;
+    const tw = dctx.measureText(label).width + 6;
+    dctx.fillStyle = "rgba(5,9,14,0.82)";
+    dctx.fillRect(x - 1, y - 13, tw, 12);
+    dctx.fillStyle = col;
+    dctx.fillText(label, x + 2, y - 4);
+    drawn++;
+  }
+}
+
+// ---------------------------------------------------------------- HUD wiring
+const $ = (id) => document.getElementById(id);
+const scenBtns = [...document.querySelectorAll(".btn.scen")];
+function syncButtons() {
+  for (const b of scenBtns) b.classList.toggle("on", b.dataset.scen === state.scenario);
+  $("t-det").classList.toggle("on", state.showDet);
+  $("t-trk").classList.toggle("on", state.showTrk);
+  $("t-heat").classList.toggle("on", state.showHeat);
+  $("t-therm").classList.toggle("on", state.thermal);
+  $("t-auto").classList.toggle("on", state.auto);
+  $("play").textContent = state.playing ? "⏸" : "▶";
+  $("spd").textContent = `×${state.speed}`;
+  $("spd-label").textContent = state.speed;
+  $("scen-label").textContent = `SCENARIO: ${state.scenario.toUpperCase()}`;
+}
+for (const b of scenBtns) b.onclick = async () => {
+  state.scenario = b.dataset.scen;
+  frames = await loadFrames(state.scenario);
+  lastHeatKey = ""; trails.clear();
+  updateMetricsHUD(); syncButtons();
+};
+$("play").onclick = () => { state.playing = !state.playing; syncButtons(); };
+$("spd").onclick = () => {
+  state.speed = { 1: 2, 2: 4, 4: 0.5, 0.5: 1 }[state.speed]; syncButtons();
+};
+$("hour").oninput = (e) => { state.simHour = parseFloat(e.target.value); };
+const toggles = [["t-det", "showDet"], ["t-trk", "showTrk"], ["t-heat", "showHeat"],
+                 ["t-therm", "thermal"], ["t-auto", "auto"]];
+for (const [id, key] of toggles)
+  $(id).onclick = () => { state[key] = !state[key]; lastHeatKey = ""; syncButtons(); };
+
+const baselineExposure = () => framesCache.baseline?.metrics?.heat_exposure_mean;
+function updateMetricsHUD() {
+  const m = frames.metrics ?? {};
+  const base = baselineExposure();
+  if (base && m.heat_exposure_mean != null) {
+    const d = (1 - m.heat_exposure_mean / base) * 100;
+    $("expo").textContent = `${d >= 0 ? "−" : "+"}${Math.abs(d).toFixed(1)}%`;
+  } else $("expo").textContent = "—";
+}
+loadFrames("baseline").then(updateMetricsHUD);
+
+// ---------------------------------------------------------------- main loop
+syncButtons(); updateMetricsHUD();
+
+const mtx = new THREE.Matrix4(), quat = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+let lastT = performance.now(), recT = 0, fpsAcc = 0, fpsN = 0, fpsShown = 0;
+
+function animate(now) {
+  requestAnimationFrame(animate);
+  const dt = Math.min(0.1, (now - lastT) / 1000);
+  lastT = now;
+  recT += dt;
+  if (state.playing) {
+    state.simHour = (state.simHour + dt * state.speed / SEC_PER_HOUR) % 24;
+    $("hour").value = state.simHour.toFixed(2);
+  }
+  const hour = state.simHour;
+  const night = updateEnvironment(hour);
+  updateHeat(hour);
+  if (state.auto) {
+    const a = now / 22000;
+    camera.position.x = controls.target.x + Math.cos(a) * 430;
+    camera.position.z = controls.target.z + Math.sin(a) * 430;
+  }
+  controls.update();
+
+  const entities = [];
+  let sheltered = 0;
+  for (let i = 0; i < NUM_A; i++) {
+    const a = frames.agents[i];
+    const [jx, jz, ph] = jitter[i];
+    const [x, z, moving, status] = trackPos(a.cells, hour, jx, jz);
+    if (status === 2) sheltered++;
+    const bob = moving ? Math.sin(now / 90 + ph * 10) * 0.18 : 0;
+    quat.setFromAxisAngle(up, ph + (moving ? Math.sin(now / 700 + ph) * 0.4 : 0));
+    mtx.compose(new THREE.Vector3(x, bob, z), quat, new THREE.Vector3(1, 1, 1));
+    peds.setMatrixAt(i, mtx);
+    peds.setColorAt(i, STATUS_COLOR[status] ?? STATUS_COLOR[0]);
+    pushTrail(a.id, x, 0, z, hour);
+    entities.push({ id: a.id, cls: "PED", x, z, h: 3.4, aspect: 0.55,
+      label: `PED-${a.id.slice(1)}`, conf: `.${Math.round(55 + a.vuln * 44)}`,
+      color: status === 2 ? "#3ddc84" : "#35e0ff" });
+  }
+  for (let i = 0; i < frames.robots.length; i++) {
+    const r = frames.robots[i];
+    const [x, z, , busy] = trackPos(r.cells, hour, 0, 6);
+    robotMeshes[i].grp.position.set(x, 0, z);
+    robotMeshes[i].strip.material.color.set(busy ? 0xff3df0 : 0x35e0ff);
+    pushTrail(r.id, x, 0, z, hour);
+    entities.push({ id: r.id, cls: "ROB", x, z, h: 1.8, aspect: 1.15,
+      label: `ROB-${r.id.slice(1)}`, conf: busy ? "TASK" : "IDLE", color: "#ffa53b" });
+  }
+  for (const s of shelterMeshes) {
+    const occ = frames.shelters[s.id];
+    const h0 = Math.floor(hour) % 24;
+    entities.push({ id: s.id, cls: "SHL", x: s.x, z: s.z, h: s.h + 4, aspect: 2.4,
+      label: s.id.replace("shelter_", "SHELTER-").toUpperCase(),
+      conf: `${occ.occupants[h0]}/${occ.capacity[h0]}`, color: "#35ffd9" });
+  }
+  peds.instanceMatrix.needsUpdate = true;
+  if (peds.instanceColor) peds.instanceColor.needsUpdate = true;
+
+  const h0 = Math.floor(hour) % 24;
+  ["shelter_north", "shelter_mid", "shelter_south"].forEach((sid, i) => {
+    const o = frames.shelters[sid];
+    const pct = o.capacity[h0] ? (100 * o.occupants[h0] / o.capacity[h0]) : 0;
+    $("b" + i).style.width = `${Math.min(100, pct)}%`;
+  });
+
+  const hh = String(Math.floor(hour)).padStart(2, "0");
+  const mm = String(Math.floor((hour % 1) * 60)).padStart(2, "0");
+  $("clock").textContent = `${hh}:${mm}`;
+  const maxHeat = Math.max(...frames.heat[h0].map(col => Math.max(...col)));
+  $("heat-label").textContent =
+    `HEAT INDEX: ${maxHeat.toFixed(2)} ${maxHeat > 1.4 ? "⚠ EXTREME" : maxHeat > 0.9 ? "ELEVATED" : "NOMINAL"}`;
+  $("tracks").textContent =
+    `TRACKS ${entities.length} · PED ${NUM_A} · ROB ${frames.robots.length} · SHELTERED ${sheltered}`;
+  const rs = Math.floor(recT);
+  $("rec-t").textContent =
+    `${String(Math.floor(rs / 3600)).padStart(2, "0")}:${String(Math.floor(rs / 60) % 60).padStart(2, "0")}:${String(rs % 60).padStart(2, "0")}`;
+  fpsAcc += 1 / Math.max(dt, 1e-4); fpsN++;
+  if (fpsN >= 30) { fpsShown = Math.round(fpsAcc / fpsN); fpsAcc = 0; fpsN = 0; }
+  $("fps").textContent = `${fpsShown} FPS`;
+
+  const w = innerWidth, h = innerHeight;
+  renderer.render(scene, camera);
+  drawDetections(entities, w, h);
+}
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false);
+  det.width = w * devicePixelRatio; det.height = h * devicePixelRatio;
+  det.style.width = w + "px"; det.style.height = h + "px";
+  dctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+addEventListener("resize", resize);
+resize();
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>

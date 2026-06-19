@@ -30,6 +30,16 @@ const SCENARIO = params.get('scenario') || 'proactive';
 const HOUR = parseInt(params.get('hour') || '14', 10);
 const PLATEAU_MODE = params.get('plateau') || 'volumes';  // off | volumes | textured
 
+// ┌──────────────────────────────────────────────────────────────────────┐
+// │  PASTE YOUR CESIUM ION TOKEN HERE to enable Google Photorealistic      │
+// │  tiles (?tiles=google).  Free token: https://ion.cesium.com            │
+// │  Leave as-is to keep PLATEAU only (uses the public PLATEAU token).     │
+// │  You can also override per-load with  ?token=eyJ...                    │
+// └──────────────────────────────────────────────────────────────────────┘
+const ION_TOKEN = "YOUR_ION_TOKEN_HERE";
+const TILES_MODE = params.get('tiles') || 'plateau';   // plateau | google
+const USER_TOKEN = params.get('token') || (ION_TOKEN !== "YOUR_ION_TOKEN_HERE" ? ION_TOKEN : null);
+
 const PLATEAU_URLS = {
   volumes:  'https://assets.cms.plateau.reearth.io/assets/4c/f2436a-e2be-40e2-83da-f1781f36e30b/' +
             '13102_chuo-ku_pref_2023_citygml_1_op_bldg_3dtiles_13102_chuo-ku_lod2_no_texture/tileset.json',
@@ -84,7 +94,7 @@ function parseCsv(text) {
     // for use with their Cesium Ion assets including 3258112 (PLATEAU
     // Terrain) and the Japan 3D Buildings layers. Source: MLIT streaming
     // tutorial. Do not use this token for unrelated assets.
-    Cesium.Ion.defaultAccessToken =
+    Cesium.Ion.defaultAccessToken = USER_TOKEN ||
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJiODVhMmQ5OS1hOWZjLTQ3YmYtODlmNi1lNWUwY2MwOGUxYTMiLCJpZCI6MTQ5ODk3LCJpYXQiOjE2ODc5MzQ3NDN9.OG0mc3i7ZxGwHQjlMv3TRjiOvKWpzxglxmJRaUIykTY';
 
     setStatus('Loading PLATEAU terrain');
@@ -136,11 +146,13 @@ function parseCsv(text) {
       }
     });
 
-    if (PLATEAU_URL) {
-      setStatus('Loading PLATEAU buildings');
-      const tileset = await Cesium.Cesium3DTileset.fromUrl(PLATEAU_URL, {
-        maximumScreenSpaceError: 24
-      });
+    const useGoogle = (TILES_MODE === 'google' && USER_TOKEN);
+    if (useGoogle && !USER_TOKEN) setStatus('Google tiles need YOUR ion token (?token= or ION_TOKEN). Using PLATEAU.', 'err');
+    if (useGoogle || PLATEAU_URL) {
+      setStatus(useGoogle ? 'Loading Google Photorealistic 3D Tiles' : 'Loading PLATEAU buildings');
+      const tileset = useGoogle
+        ? await Cesium.createGooglePhotorealistic3DTileset()
+        : await Cesium.Cesium3DTileset.fromUrl(PLATEAU_URL, { maximumScreenSpaceError: 24 });
       viewer.scene.primitives.add(tileset);
       // Note: deliberately NOT calling viewer.zoomTo(tileset) here.
       // That would override the Nihonbashi setView with the full Chuo ku

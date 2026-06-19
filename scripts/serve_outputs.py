@@ -39,8 +39,30 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.send_response(204)
         self.end_headers()
 
+    def copyfile(self, source, outputfile) -> None:
+        # A client (browser tab, slow renderer) aborting a big download raises
+        # BrokenPipe/ConnectionReset mid-copy; swallow it so one dropped request
+        # can't take the whole server down.
+        try:
+            super().copyfile(source, outputfile)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
+
     def log_message(self, format: str, *args) -> None:
         sys.stderr.write("  HTTP " + (format % args) + "\n")
+
+
+class RobustServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    """Threaded so one slow/aborted client never blocks or kills the others."""
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def handle_error(self, request, client_address) -> None:
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)):
+            return                                   # benign client disconnect
+        import traceback
+        traceback.print_exc()
 
 
 def main() -> int:
@@ -62,7 +84,7 @@ def main() -> int:
     print()
 
     os.chdir(OUTPUTS)
-    with socketserver.TCPServer(("127.0.0.1", PORT), CORSRequestHandler) as srv:
+    with RobustServer(("0.0.0.0", PORT), CORSRequestHandler) as srv:
         try:
             srv.serve_forever()
         except KeyboardInterrupt:
