@@ -6,6 +6,7 @@
 <link rel="stylesheet"
       href="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Widgets/widgets.css">
 <script src="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Cesium.js"></script>
+<script src="ion_token.js"></script><!-- gitignored; sets window.ION_TOKEN_OVERRIDE -->
 <style>
   html, body { margin:0; padding:0; height:100%; font-family: system-ui, sans-serif; }
   #cesium { position:absolute; inset:0; }
@@ -42,7 +43,8 @@ const TILES  = params.get('tiles') || 'plateau';     // plateau | google
 const METRIC = params.get('metric') || 'annual_energy_kwh';
 // Public PLATEAU ion token (works for PLATEAU/terrain only — NOT Google tiles)
 const PLATEAU_PUBLIC = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJiODVhMmQ5OS1hOWZjLTQ3YmYtODlmNi1lNWUwY2MwOGUxYTMiLCJpZCI6MTQ5ODk3LCJpYXQiOjE2ODc5MzQ3NDN9.OG0mc3i7ZxGwHQjlMv3TRjiOvKWpzxglxmJRaUIykTY';
-const userToken = params.get('token') || (ION_TOKEN !== "YOUR_ION_TOKEN_HERE" ? ION_TOKEN : null);
+const userToken = params.get('token') || window.ION_TOKEN_OVERRIDE ||
+  (ION_TOKEN !== "YOUR_ION_TOKEN_HERE" ? ION_TOKEN : null);
 const token = userToken || PLATEAU_PUBLIC;
 
 const PLATEAU_TEXTURED = 'https://assets.cms.plateau.reearth.io/assets/01/8c112f-4957-409a-9b43-d86308c7b74a/' +
