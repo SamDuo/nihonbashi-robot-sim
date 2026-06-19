@@ -30,6 +30,10 @@
     border-radius:3px;background:rgba(8,12,18,.7);color:#9fc4d2;letter-spacing:.05em}
   #ctl .btn:hover{color:#fff;border-color:#35e0ff}
   #ctl .btn.on{background:#35e0ff;color:#06141a;border-color:#35e0ff;font-weight:700}
+  #splitter{position:absolute;top:0;bottom:0;left:50%;width:4px;margin-left:-2px;background:#35e0ff;
+    cursor:col-resize;z-index:900;box-shadow:0 0 8px #35e0ff}
+  #splitter::after{content:"◀ real ┆ sim ▶";position:absolute;top:10px;left:50%;transform:translateX(-50%);
+    white-space:nowrap;font-size:10px;color:#06141a;background:#35e0ff;padding:2px 6px;border-radius:3px;font-family:system-ui}
 </style>
 </head>
 <body>
@@ -115,25 +119,62 @@ const ramp = (t) => {
       terrainProvider, baseLayerPicker:false, geocoder:false, homeButton:false,
       sceneModePicker:false, navigationHelpButton:false, timeline:false, animation:false,
       fullscreenButton:false, infoBox:true, selectionIndicator:true,
+      requestRenderMode:true, maximumRenderTimeChange:Infinity, useBrowserRecommendedResolution:true,
     });
-    viewer.scene.skyBox = undefined; viewer.scene.skyAtmosphere = undefined;
+    // ---- performance: static scene -> on-demand render + strip costly features ----
+    const sc = viewer.scene;
+    sc.requestRenderMode = true; sc.maximumRenderTimeChange = Infinity;
+    sc.skyBox = undefined; sc.skyAtmosphere = undefined;
+    sc.fog.enabled = false; sc.shadowMap.enabled = false; viewer.shadows = false;
+    sc.globe.enableLighting = false; sc.globe.show = false;   // photoreal covers the ground
+    sc.globe.maximumScreenSpaceError = 4; sc.globe.tileCacheSize = 60;
+    sc.msaaSamples = 1; sc.postProcessStages.fxaa.enabled = false; sc.highDynamicRange = false;
+    const cc = sc.screenSpaceCameraController;
+    cc.minimumZoomDistance = 120; cc.maximumZoomDistance = 1200; cc.enableCollisionDetection = true;
+    const requestRender = () => sc.requestRender();
     viewer.camera.setView({
       destination: Cesium.Cartesian3.fromDegrees(cLng, cLat - 0.0016, 380),
       orientation: { heading: Cesium.Math.toRadians(10), pitch: Cesium.Math.toRadians(-42), roll: 0 },
     });
 
-    // ---- photoreal context, clipped to EXCLUDE the study block ----
+    // ---- split-screen context: LEFT full photoreal · RIGHT photoreal minus the study block
+    // (Cesium entities can't be split, so they read on the RIGHT where photoreal is clipped
+    //  away, and are hidden under photoreal on the LEFT — no "coloured boxes on photoreal").
     setStatus(TILES === 'google' && userToken ? 'Loading Google Photorealistic tiles' : 'Loading PLATEAU context');
+    const isGoogle = (TILES === 'google' && userToken);
+    function tunePhotoreal(t) {
+      t.maximumScreenSpaceError = isGoogle ? 20 : 24;
+      t.cacheBytes = 1073741824; t.maximumCacheOverflowBytes = 536870912;   // 1.123 names
+      t.foveatedScreenSpaceError = true; t.foveatedConeSize = 0.20;
+      t.preloadWhenHidden = false; t.preloadFlightDestinations = false;
+      t.cullWithChildrenBounds = true;
+      t.cullRequestsWhileMoving = true; t.cullRequestsWhileMovingMultiplier = 60;
+      if (isGoogle) { t.dynamicScreenSpaceError = true; t.dynamicScreenSpaceErrorDensity = 0.00278; t.dynamicScreenSpaceErrorFactor = 4.0; }
+    }
+    const mkCtx = () => isGoogle
+      ? Cesium.createGooglePhotorealistic3DTileset({ maximumScreenSpaceError: 20 })
+      : Cesium.Cesium3DTileset.fromUrl(PLATEAU_TEXTURED, { maximumScreenSpaceError: 24 });
     try {
-      const ctx = (TILES === 'google' && userToken)
-        ? await Cesium.createGooglePhotorealistic3DTileset()
-        : await Cesium.Cesium3DTileset.fromUrl(PLATEAU_TEXTURED, { maximumScreenSpaceError: 16 });
-      viewer.scene.primitives.add(ctx);
+      const tilesetL = await mkCtx(); tunePhotoreal(tilesetL);
+      tilesetL.splitDirection = Cesium.SplitDirection.LEFT; sc.primitives.add(tilesetL);
+      const tilesetR = await mkCtx(); tunePhotoreal(tilesetR);
+      tilesetR.splitDirection = Cesium.SplitDirection.RIGHT;
       if (Cesium.ClippingPolygonCollection)
-        ctx.clippingPolygons = new Cesium.ClippingPolygonCollection({
-          polygons: [ new Cesium.ClippingPolygon({ positions: Cesium.Cartesian3.fromDegreesArray(bbFlat) }) ],
-          inverse: false });
-      setStatus('Context streaming. Study block coloured by ' + state.metric + '.', 'ok');
+        tilesetR.clippingPolygons = new Cesium.ClippingPolygonCollection({
+          inverse: false, edgeWidth: 0,
+          polygons: [ new Cesium.ClippingPolygon({ positions: Cesium.Cartesian3.fromDegreesArray(bbFlat) }) ] });
+      sc.primitives.add(tilesetR);
+      sc.splitPosition = 0.5;
+      // draggable divider
+      const splitter = document.createElement('div'); splitter.id = 'splitter'; document.body.appendChild(splitter);
+      const setSplit = (p) => { p = Math.max(0.05, Math.min(0.95, p)); sc.splitPosition = p; splitter.style.left = (p*100)+'%'; requestRender(); };
+      setSplit(0.5);
+      let dragging = false;
+      splitter.addEventListener('mousedown', () => { dragging = true; cc.enableInputs = false; });
+      window.addEventListener('mouseup', () => { if (dragging) { dragging = false; cc.enableInputs = true; } });
+      window.addEventListener('mousemove', (e) => { if (dragging) setSplit(e.clientX / sc.canvas.clientWidth); });
+      requestRender();
+      setStatus('Split: LEFT photoreal · RIGHT energy sim · coloured by ' + state.metric, 'ok');
     } catch (e) { setStatus('Context tiles failed: ' + (e.message||e), 'err'); console.warn(e); }
 
     // ---- study buildings (keep entity refs so we can recolour) ----
@@ -170,7 +211,7 @@ const ramp = (t) => {
       $('leg-title').textContent = title + (scenWWR ? ` · ${state.demand.toUpperCase()}` : '');
       $('lmin').textContent = Math.round(mn).toLocaleString();
       $('lmax').textContent = Math.round(mx).toLocaleString();
-      kpi();
+      kpi(); requestRender();
     }
     function kpi() {
       const d = scene.demand_scenarios[state.demand], s = scene.supply_scenarios[state.supply];
