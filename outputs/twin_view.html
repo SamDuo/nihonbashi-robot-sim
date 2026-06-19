@@ -380,7 +380,9 @@ function updateHeat(hour) {
 // a modest GPU where thousands of textured glTFs would not. The mesh is recentred
 // on its own footprint (ground at Y=0); here we drop it onto the district centre.
 // Tuning params: ?rot=<deg> spins it, ?dx / ?dz nudge it, ?cityscale=<f> scales.
-const cityRotDeg = parseFloat(params.get("rot") ?? "0");
+// georeference: OSM streets run at ~63°, PLATEAU building grid at ~28°, so rotate
+// the welded city -35° to lay its grid parallel to the real Nihonbashi streets.
+const cityRotDeg = parseFloat(params.get("rot") ?? "-35");
 const cityDX = parseFloat(params.get("dx") ?? "0");
 const cityDZ = parseFloat(params.get("dz") ?? "0");
 const cityScale = parseFloat(params.get("cityscale") ?? "1");
