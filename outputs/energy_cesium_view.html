@@ -13,59 +13,78 @@
   #status { position:fixed; top:8px; right:8px; max-width:340px; background:rgba(0,0,0,.78);
     color:#fff; padding:6px 10px; border-radius:6px; font-size:11px; line-height:1.4; z-index:1000; white-space:pre-line; }
   .ok{background:rgba(40,130,40,.85)!important} .err{background:rgba(180,40,40,.9)!important}
-  #leg { position:fixed; bottom:34px; left:8px; background:rgba(8,12,18,.82); color:#cfe9f2;
+  #hud { position:fixed; top:8px; left:8px; background:rgba(8,12,18,.82); color:#cfe9f2;
+    padding:8px 11px; border-radius:6px; font-size:12px; z-index:1000; min-width:240px; }
+  #hud .big{font-size:22px;font-weight:700;color:#fff;line-height:1.1}
+  #hud .sub{color:#8fb3c0;font-size:11px;margin-top:3px}
+  #leg { position:fixed; bottom:12px; right:12px; background:rgba(8,12,18,.82); color:#cfe9f2;
     padding:8px 10px; border-radius:6px; font-size:11px; z-index:1000; }
-  #leg .bar{height:10px;width:200px;border-radius:2px;margin:4px 0;
-    background:linear-gradient(90deg,#2b6cff,#13c08a,#ffb347,#ff5436);}
+  #leg .bar{height:10px;width:200px;border-radius:2px;margin:4px 0;}
   #leg .row{display:flex;justify-content:space-between;width:200px;color:#8fb3c0}
+  #ctl { position:fixed; bottom:12px; left:50%; transform:translateX(-50%); display:flex; gap:14px;
+    background:rgba(8,12,18,.86); padding:7px 12px; border-radius:7px; z-index:1000; align-items:center; }
+  #ctl .grp{display:flex;flex-direction:column;gap:3px}
+  #ctl .lbl{font-size:9px;color:#6f8896;letter-spacing:.1em}
+  #ctl .btns{display:flex;gap:4px}
+  #ctl .btn{cursor:pointer;font-size:10px;padding:4px 8px;border:1px solid rgba(80,220,255,.25);
+    border-radius:3px;background:rgba(8,12,18,.7);color:#9fc4d2;letter-spacing:.05em}
+  #ctl .btn:hover{color:#fff;border-color:#35e0ff}
+  #ctl .btn.on{background:#35e0ff;color:#06141a;border-color:#35e0ff;font-weight:700}
 </style>
 </head>
 <body>
 <div id="cesium"></div>
 <div id="status">Initializing</div>
+
+<div id="hud">
+  <div style="color:#35e0ff;font-weight:700;font-size:11px">NIHONBASHI ENERGY TWIN · 日本橋</div>
+  <div class="big" id="kpi-main">—</div>
+  <div class="sub" id="kpi-co2">—</div>
+  <div class="sub" id="kpi-scn">—</div>
+</div>
+
 <div id="leg" style="display:none">
-  <div><b>ANNUAL ENERGY</b> — study block (kWh/yr)</div>
+  <div><b id="leg-title">ANNUAL ENERGY</b> — study block</div>
   <div class="bar"></div>
   <div class="row"><span id="lmin">low</span><span id="lmax">high</span></div>
-  <div style="margin-top:6px;color:#7da">grey = PLATEAU context</div>
+  <div style="margin-top:6px;color:#7da">grey = PLATEAU/Google context</div>
+</div>
+
+<div id="ctl">
+  <div class="grp"><div class="lbl">COLOUR BY</div><div class="btns" id="metricBtns"></div></div>
+  <div class="grp"><div class="lbl">DEMAND</div><div class="btns" id="demandBtns"></div></div>
+  <div class="grp"><div class="lbl">SUPPLY</div><div class="btns" id="supplyBtns"></div></div>
 </div>
 
 <script>
-// ╔══════════════════════════════════════════════════════════════════════╗
-// ║  PASTE YOUR CESIUM ION TOKEN HERE  →  free at https://ion.cesium.com   ║
-// ║  (or pass it in the URL as  ?token=eyJ...  — that overrides this)      ║
-// ╚══════════════════════════════════════════════════════════════════════╝
 const ION_TOKEN = "YOUR_ION_TOKEN_HERE";
-
-// ---------------------------------------------------------------------------
 const params = new URLSearchParams(location.search);
 const TILES  = params.get('tiles') || 'plateau';     // plateau | google
-const METRIC = params.get('metric') || 'annual_energy_kwh';
-// Public PLATEAU ion token (works for PLATEAU/terrain only — NOT Google tiles)
 const PLATEAU_PUBLIC = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJiODVhMmQ5OS1hOWZjLTQ3YmYtODlmNi1lNWUwY2MwOGUxYTMiLCJpZCI6MTQ5ODk3LCJpYXQiOjE2ODc5MzQ3NDN9.OG0mc3i7ZxGwHQjlMv3TRjiOvKWpzxglxmJRaUIykTY';
 const userToken = params.get('token') || window.ION_TOKEN_OVERRIDE ||
   (ION_TOKEN !== "YOUR_ION_TOKEN_HERE" ? ION_TOKEN : null);
 const token = userToken || PLATEAU_PUBLIC;
-
 const PLATEAU_TEXTURED = 'https://assets.cms.plateau.reearth.io/assets/01/8c112f-4957-409a-9b43-d86308c7b74a/' +
   '13102_chuo-ku_pref_2023_citygml_1_op_bldg_3dtiles_13102_chuo-ku_lod2/tileset.json';
 
-const STATUS = document.getElementById('status');
-const setStatus = (m, c) => { STATUS.textContent = m; STATUS.className = c || ''; console.log('[energy-cesium]', m); };
+const METRICS = { energy:['annual_energy_kwh','ANNUAL ENERGY'], intensity:['intensity','ENERGY INTENSITY'],
+                  cost:['revit_cost_yenM','REVITALISATION COST'], wwr:['wwr','WINDOW RATIO'] };
+const RAMP = ['#2b6cff','#13c08a','#ffb347','#ff5436'];
+const state = { metric:'energy', demand:'baseline', supply:'baseline' };
 
-const ramp = (t) => {  // 0..1 -> blue->green->amber->red (matches energy_view DATA mode)
-  const stops = [[43,108,255],[19,192,138],[255,179,71],[255,84,54]];
-  t = Math.max(0, Math.min(1, t)); const f = t*3, i = Math.min(2, Math.floor(f)), k = f-i;
-  const a=stops[i], b=stops[i+1];
+const STATUS = document.getElementById('status');
+const $ = id => document.getElementById(id);
+const setStatus = (m, c) => { STATUS.textContent = m; STATUS.className = c || ''; console.log('[energy-cesium]', m); };
+const ramp = (t) => {
+  const s=[[43,108,255],[19,192,138],[255,179,71],[255,84,54]];
+  t=Math.max(0,Math.min(1,t)); const f=t*3,i=Math.min(2,Math.floor(f)),k=f-i,a=s[i],b=s[i+1];
   return Cesium.Color.fromBytes(a[0]+(b[0]-a[0])*k, a[1]+(b[1]-a[1])*k, a[2]+(b[2]-a[2])*k, 235);
 };
 
 (async () => {
   try {
     Cesium.Ion.defaultAccessToken = token;
-    if (TILES === 'google' && !userToken) {
-      setStatus('Google tiles need YOUR ion token — paste it in ION_TOKEN or ?token=. Falling back to PLATEAU.', 'err');
-    }
+    if (TILES === 'google' && !userToken) setStatus('Google tiles need YOUR ion token. Falling back to PLATEAU.', 'err');
 
     setStatus('Loading energy scene');
     const scene = await fetch('/energy/energy_scene.json').then(r => r.json());
@@ -73,19 +92,15 @@ const ramp = (t) => {  // 0..1 -> blue->green->amber->red (matches energy_view D
     const MLAT = 111320, MLNG = 111320 * Math.cos(A_LAT * Math.PI / 180);
     const toLL = (x, z) => [A_LNG + x / MLNG, A_LAT + z / MLAT];
 
-    // study-block lat/lng footprints + metric range
-    const [mn, mx] = scene.metric_ranges[METRIC] || [0, 1];
     const lats = [], lngs = [];
     const studyPolys = scene.buildings.map(b => {
       const flat = [];
       b.poly.forEach(([x, z]) => { const [lng, lat] = toLL(x, z); flat.push(lng, lat); lats.push(lat); lngs.push(lng); });
       return { b, flat };
     });
-    document.getElementById('lmin').textContent = Math.round(mn).toLocaleString();
-    document.getElementById('lmax').textContent = Math.round(mx).toLocaleString();
-    document.getElementById('leg').style.display = '';
+    $('leg').style.display = '';
+    document.querySelector('#leg .bar').style.background = `linear-gradient(90deg,${RAMP.join(',')})`;
 
-    // block boundary = bbox of study footprints (+ small margin) for clipping context
     const pad = 0.00012;
     const bb = [[Math.min(...lngs)-pad, Math.min(...lats)-pad], [Math.max(...lngs)+pad, Math.min(...lats)-pad],
                 [Math.max(...lngs)+pad, Math.max(...lats)+pad], [Math.min(...lngs)-pad, Math.max(...lats)+pad]];
@@ -107,51 +122,81 @@ const ramp = (t) => {  // 0..1 -> blue->green->amber->red (matches energy_view D
       orientation: { heading: Cesium.Math.toRadians(10), pitch: Cesium.Math.toRadians(-42), roll: 0 },
     });
 
-    // ---- context tiles (photoreal), clipped to EXCLUDE the study block ----
+    // ---- photoreal context, clipped to EXCLUDE the study block ----
     setStatus(TILES === 'google' && userToken ? 'Loading Google Photorealistic tiles' : 'Loading PLATEAU context');
-    let ctx;
     try {
-      ctx = (TILES === 'google' && userToken)
+      const ctx = (TILES === 'google' && userToken)
         ? await Cesium.createGooglePhotorealistic3DTileset()
         : await Cesium.Cesium3DTileset.fromUrl(PLATEAU_TEXTURED, { maximumScreenSpaceError: 16 });
       viewer.scene.primitives.add(ctx);
-      if (Cesium.ClippingPolygonCollection) {
+      if (Cesium.ClippingPolygonCollection)
         ctx.clippingPolygons = new Cesium.ClippingPolygonCollection({
           polygons: [ new Cesium.ClippingPolygon({ positions: Cesium.Cartesian3.fromDegreesArray(bbFlat) }) ],
-          inverse: false,   // clip what is INSIDE the block (our coloured buildings fill it)
-        });
-      }
-      setStatus('Context streaming. Study block coloured by energy.', 'ok');
-    } catch (e) {
-      setStatus('Context tiles failed: ' + (e.message || e) + '. Showing study block only.', 'err');
-      console.warn(e);
-    }
+          inverse: false });
+      setStatus('Context streaming. Study block coloured by ' + state.metric + '.', 'ok');
+    } catch (e) { setStatus('Context tiles failed: ' + (e.message||e), 'err'); console.warn(e); }
 
-    // ---- study buildings: extruded + coloured by metric (DATA mode) ----
-    for (const { b, flat } of studyPolys) {
-      const v = b[METRIC]; const t = (mx > mn) ? (v - mn) / (mx - mn) : 0.5;
-      viewer.entities.add({
-        name: 'Building ' + b.id,
-        description: `<b>Building ${b.id}</b><br>${b.use || ''} · ${b.program || ''}<br>` +
-          `Annual energy: ${Math.round(b.annual_energy_kwh).toLocaleString()} kWh/yr<br>` +
-          `Intensity: ${b.intensity} kWh/m²·yr · WWR ${b.wwr ?? '—'} · ${b.material ?? ''}`,
-        polygon: {
-          hierarchy: Cesium.Cartesian3.fromDegreesArray(flat),
-          material: ramp(t),
-          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-          extrudedHeight: b.height, extrudedHeightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
-          outline: true, outlineColor: Cesium.Color.fromCssColorString('#0b1014').withAlpha(0.6),
-        },
-      });
-    }
-    // block outline
+    // ---- study buildings (keep entity refs so we can recolour) ----
+    const ents = studyPolys.map(({ b, flat }) => ({ b, entity: viewer.entities.add({
+      name: 'Building ' + b.id,
+      description: `<b>Building ${b.id}</b><br>${b.use || ''} · ${b.program || ''}<br>` +
+        `Annual energy: ${Math.round(b.annual_energy_kwh).toLocaleString()} kWh/yr<br>` +
+        `Intensity: ${b.intensity} kWh/m²·yr · WWR ${b.wwr ?? '—'} · ${b.material ?? ''}`,
+      polygon: { hierarchy: Cesium.Cartesian3.fromDegreesArray(flat),
+        material: Cesium.Color.GRAY, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+        extrudedHeight: b.height, extrudedHeightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+        outline: true, outlineColor: Cesium.Color.fromCssColorString('#0b1014').withAlpha(0.6) } }) }));
+
     viewer.entities.add({ polyline: {
       positions: Cesium.Cartesian3.fromDegreesArray(bbFlat.concat([bb[0][0], bb[0][1]])),
       width: 2, material: Cesium.Color.fromCssColorString('#35e0ff').withAlpha(0.6), clampToGround: true } });
 
-  } catch (err) {
-    setStatus('Error: ' + (err.message || err), 'err'); console.error(err);
-  }
+    // ---- live recolour + KPI on metric/demand/supply ----
+    function recolor() {
+      const [key, title] = METRICS[state.metric];
+      const [mn, mx] = scene.metric_ranges[key] || [0, 1];
+      for (const { b, entity } of ents) {
+        const v = b[key]; const t = (mx > mn) ? (v - mn) / (mx - mn) : 0.5;
+        entity.polygon.material = ramp(t);
+      }
+      $('leg-title').textContent = title;
+      $('lmin').textContent = Math.round(mn).toLocaleString();
+      $('lmax').textContent = Math.round(mx).toLocaleString();
+      kpi();
+    }
+    function kpi() {
+      const d = scene.demand_scenarios[state.demand], s = scene.supply_scenarios[state.supply];
+      const dem = 1 - (d.annual_reduction_pct || 0) / 100;
+      const energyMWh = scene.totals.total_annual_energy_kwh * dem / 1000;
+      const co2 = (s.annual_co2_tonnes || 0) * dem;
+      const baseCo2 = scene.supply_scenarios.baseline.annual_co2_tonnes;
+      const delta = baseCo2 ? (co2 - baseCo2) / baseCo2 * 100 : 0;
+      $('kpi-main').textContent = Math.round(energyMWh).toLocaleString() + ' MWh/yr';
+      $('kpi-co2').textContent = 'CO₂ ' + co2.toFixed(0) + ' t/yr' +
+        (s.pv_kw ? ` · ${s.pv_kw}kW PV / ${s.bess_kwh}kWh BESS` : '');
+      $('kpi-scn').innerHTML = `demand: ${d.label} · supply: ${state.supply}` +
+        (delta ? ` · <span style="color:#3ddc84">Δ CO₂ ${delta.toFixed(0)}%</span>` : '');
+    }
+    function mkBtns(host, opts, get, set) {
+      host.innerHTML = '';
+      for (const [k, t] of opts) {
+        const el = document.createElement('div'); el.className = 'btn'; el.textContent = t; el.dataset.k = k;
+        el.onclick = () => { set(k); sync(); recolor(); };
+        host.appendChild(el);
+      }
+      function s2() { for (const el of host.children) el.classList.toggle('on', el.dataset.k === get()); }
+      host._sync = s2;
+    }
+    function sync() { for (const h of [$('metricBtns'), $('demandBtns'), $('supplyBtns')]) h._sync && h._sync(); }
+    mkBtns($('metricBtns'), [['energy','ENERGY'],['intensity','EUI'],['cost','COST'],['wwr','WWR']],
+           () => state.metric, k => state.metric = k);
+    mkBtns($('demandBtns'), [['baseline','BASE'],['s1','S1 −5%'],['s2','S2 −15%']],
+           () => state.demand, k => state.demand = k);
+    mkBtns($('supplyBtns'), [['baseline','GRID'],['pv_bess','PV+BESS'],['pv_bess_chp','+CHP']],
+           () => state.supply, k => state.supply = k);
+    sync(); recolor();
+
+  } catch (err) { setStatus('Error: ' + (err.message || err), 'err'); console.error(err); }
 })();
 </script>
 </body>

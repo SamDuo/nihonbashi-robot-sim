@@ -23,6 +23,15 @@
 <body>
 <div id="cesium"></div>
 <div id="status">Initializing</div>
+<div id="heatctl" style="position:fixed;bottom:12px;left:50%;transform:translateX(-50%);
+  background:rgba(8,12,18,.86);padding:7px 14px;border-radius:7px;z-index:1000;color:#cfe9f2;
+  font-size:11px;display:none;align-items:center;gap:12px;font-family:system-ui,sans-serif">
+  <span>HEAT HOUR <b id="hh">14</b>:00</span>
+  <input id="hslider" type="range" min="0" max="23" value="14" style="width:220px;accent-color:#ff7043">
+  <span style="display:inline-block;width:120px;height:10px;border-radius:2px;
+    background:linear-gradient(90deg,#2b6cff,#13c08a,#ffb347,#ff5436)"></span>
+  <span style="color:#8fb3c0">cool→hot · PLATEAU mode</span>
+</div>
 
 <script>
 // ---------- params ----------
@@ -192,6 +201,40 @@ function parseCsv(text) {
     } else {
       setStatus('PLATEAU disabled. OSM only.', 'ok');
     }
+
+    // ---- hourly heat field overlaid on the ground (drapes on terrain; shows
+    // best in PLATEAU mode — Google's fused mesh covers the ground) ----
+    try {
+      const fr = await fetch(`/twin/frames_${SCENARIO}.json`).then(r => r.json());
+      if (fr && fr.heat) {
+        const GW = 20, GH = 10, CELL = 50, aLat = 35.681, aLng = 139.772;
+        const mlng = 111320 * Math.cos(aLat * Math.PI / 180), mlat = 111320;
+        const rect = Cesium.Rectangle.fromDegrees(aLng, aLat, aLng + GW * CELL / mlng, aLat + GH * CELL / mlat);
+        const hcss = (v) => {
+          const s = [[43,108,255],[19,192,138],[255,179,71],[255,84,54]];
+          const t = Math.max(0, Math.min(1, v / 2.2)), f = t*3, i = Math.min(2, Math.floor(f)), k = f-i, a = s[i], b = s[i+1];
+          return `rgb(${a[0]+(b[0]-a[0])*k|0},${a[1]+(b[1]-a[1])*k|0},${a[2]+(b[2]-a[2])*k|0})`;
+        };
+        const canv = (h) => {
+          const c = document.createElement('canvas'); c.width = GW; c.height = GH; const g = c.getContext('2d');
+          const H = fr.heat[h];
+          for (let x = 0; x < GW; x++) for (let y = 0; y < GH; y++) { g.fillStyle = hcss(H[x][y]); g.fillRect(x, GH-1-y, 1, 1); }
+          return c;
+        };
+        let layer = null;
+        async function setHeat(h) {
+          const prov = await Cesium.SingleTileImageryProvider.fromUrl(canv(h).toDataURL(), { rectangle: rect });
+          const nl = viewer.imageryLayers.addImageryProvider(prov); nl.alpha = 0.62;
+          if (layer) viewer.imageryLayers.remove(layer); layer = nl;
+        }
+        await setHeat(HOUR);
+        const hc = document.getElementById('heatctl'); hc.style.display = 'flex';
+        document.getElementById('hslider').value = HOUR; document.getElementById('hh').textContent = HOUR;
+        document.getElementById('hslider').oninput = (e) => {
+          const h = +e.target.value; document.getElementById('hh').textContent = h; setHeat(h);
+        };
+      }
+    } catch (e) { console.warn('heat overlay failed', e); }
 
     // Shelter polygons
     sheltersJson.features.forEach(f => {
