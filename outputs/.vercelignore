@@ -1,0 +1,9 @@
+# Keep the Vercel deploy lean: ship the HTML + data + the small optimised glbs only.
+qa/
+slides/
+# heavy intermediates (not needed to run the site)
+twin/plateau/nihonbashi_lod2.glb
+twin/plateau/_lod2_raw.npz
+energy/Nihonbashi_District/
+*.pptx
+*.md

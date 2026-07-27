@@ -30,6 +30,8 @@
     border-radius:3px;background:rgba(8,12,18,.7);color:#9fc4d2;letter-spacing:.05em}
   #ctl .btn:hover{color:#fff;border-color:#35e0ff}
   #ctl .btn.on{background:#35e0ff;color:#06141a;border-color:#35e0ff;font-weight:700}
+  #ctl .sld{width:140px;accent-color:#35e0ff;cursor:pointer;vertical-align:middle}
+  #ctl .row{display:flex;align-items:center;gap:6px}
   #splitter{position:absolute;top:0;bottom:0;left:50%;width:4px;margin-left:-2px;background:#35e0ff;
     cursor:col-resize;z-index:900;box-shadow:0 0 8px #35e0ff}
   #splitter::after{content:"◀ real ┆ sim ▶";position:absolute;top:10px;left:50%;transform:translateX(-50%);
@@ -55,15 +57,20 @@
 </div>
 
 <div id="ctl">
-  <div class="grp"><div class="lbl">COLOUR BY</div><div class="btns" id="metricBtns"></div></div>
+  <div class="grp"><div class="lbl">COLOUR BY · <span id="metricName">ENERGY</span></div>
+    <input id="metricSlider" class="sld" type="range" min="0" max="3" step="1" value="0"></div>
   <div class="grp"><div class="lbl">DEMAND</div><div class="btns" id="demandBtns"></div></div>
   <div class="grp"><div class="lbl">SUPPLY</div><div class="btns" id="supplyBtns"></div></div>
+  <div class="grp"><div class="lbl">TIME · <span id="hlabel">12:00</span></div>
+    <div class="row"><div class="btn" id="playBtn" title="auto day/night">▶</div>
+      <input id="hourSlider" class="sld" type="range" min="0" max="23.99" step="0.25" value="12"></div></div>
 </div>
 
 <script>
 const ION_TOKEN = "YOUR_ION_TOKEN_HERE";
 const params = new URLSearchParams(location.search);
 const TILES  = params.get('tiles') || 'plateau';     // plateau | google
+const useGlbContext = params.get('context') === 'glb';   // glb = stylized LOD2 city w/ lit-window night
 const PLATEAU_PUBLIC = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJiODVhMmQ5OS1hOWZjLTQ3YmYtODlmNi1lNWUwY2MwOGUxYTMiLCJpZCI6MTQ5ODk3LCJpYXQiOjE2ODc5MzQ3NDN9.OG0mc3i7ZxGwHQjlMv3TRjiOvKWpzxglxmJRaUIykTY';
 const userToken = params.get('token') || window.ION_TOKEN_OVERRIDE ||
   (ION_TOKEN !== "YOUR_ION_TOKEN_HERE" ? ION_TOKEN : null);
@@ -74,7 +81,7 @@ const PLATEAU_TEXTURED = 'https://assets.cms.plateau.reearth.io/assets/01/8c112f
 const METRICS = { energy:['annual_energy_kwh','ANNUAL ENERGY'], intensity:['intensity','ENERGY INTENSITY'],
                   cost:['revit_cost_yenM','REVITALISATION COST'], wwr:['wwr','WINDOW RATIO'] };
 const RAMP = ['#2b6cff','#13c08a','#ffb347','#ff5436'];
-const state = { metric:'energy', demand:'baseline', supply:'baseline' };
+const state = { metric:'energy', demand:'baseline', supply:'baseline', hour:12 };
 
 const STATUS = document.getElementById('status');
 const $ = id => document.getElementById(id);
@@ -82,7 +89,7 @@ const setStatus = (m, c) => { STATUS.textContent = m; STATUS.className = c || ''
 const ramp = (t) => {
   const s=[[43,108,255],[19,192,138],[255,179,71],[255,84,54]];
   t=Math.max(0,Math.min(1,t)); const f=t*3,i=Math.min(2,Math.floor(f)),k=f-i,a=s[i],b=s[i+1];
-  return Cesium.Color.fromBytes(a[0]+(b[0]-a[0])*k, a[1]+(b[1]-a[1])*k, a[2]+(b[2]-a[2])*k, 235);
+  return Cesium.Color.fromBytes(a[0]+(b[0]-a[0])*k, a[1]+(b[1]-a[1])*k, a[2]+(b[2]-a[2])*k, 255);
 };
 
 (async () => {
@@ -105,18 +112,24 @@ const ramp = (t) => {
     $('leg').style.display = '';
     document.querySelector('#leg .bar').style.background = `linear-gradient(90deg,${RAMP.join(',')})`;
 
-    const pad = 0.00012;
+    const pad = 0.00004;   // tight boundary that hugs the study cluster (not a big box)
     const bb = [[Math.min(...lngs)-pad, Math.min(...lats)-pad], [Math.max(...lngs)+pad, Math.min(...lats)-pad],
                 [Math.max(...lngs)+pad, Math.max(...lats)+pad], [Math.min(...lngs)-pad, Math.max(...lats)+pad]];
     const bbFlat = bb.flat();
     const cLng = (Math.min(...lngs)+Math.max(...lngs))/2, cLat = (Math.min(...lats)+Math.max(...lats))/2;
 
-    let terrainProvider;
-    try { terrainProvider = await Cesium.CesiumTerrainProvider.fromIonAssetId(3258112); }
-    catch { terrainProvider = new Cesium.EllipsoidTerrainProvider(); }
-    // Bing Aerial w/Labels base so the GROUND + STREETS show (PLATEAU has no ground mesh;
-    // with globe off the streets were black). Needs the user's ion token.
-    const baseLayer = Cesium.ImageryLayer.fromProviderAsync(Cesium.IonImageryProvider.fromAssetId(3));
+    // Flat globe at height 0. The PLATEAU photoreal tiles natively sit ~38 m up (ellipsoidal),
+    // and no terrain product matches that exactly, so instead we shift the photoreal tilesets
+    // DOWN onto height 0 (groundTileset below). Then the designed streets, the photoreal, and the
+    // coloured buildings all share one ground plane — no float, no sink.
+    const terrainProvider = new Cesium.EllipsoidTerrainProvider();
+    // DEFAULT: a DESIGNED streetscape (no Bing) — clean warm ground + drawn roads/water/trees,
+    // which reads like an architectural model. ?base=bing keeps the flat Bing Roads map instead.
+    let baseLayer = false;
+    if (params.get('base') === 'bing') {
+      try { baseLayer = new Cesium.ImageryLayer(await Cesium.IonImageryProvider.fromAssetId(4)); window.__BASE_ASSET = 4; }
+      catch (e) { console.warn('bing base failed', e); }
+    }
 
     const viewer = new Cesium.Viewer('cesium', {
       baseLayer, terrainProvider, baseLayerPicker:false, geocoder:false, homeButton:false,
@@ -125,28 +138,48 @@ const ramp = (t) => {
       requestRenderMode:true, maximumRenderTimeChange:Infinity, useBrowserRecommendedResolution:true,
     });
     // ---- performance: static scene -> on-demand render + strip costly features ----
-    const sc = viewer.scene;
+    const sc = viewer.scene; window.__viewer = viewer;
     sc.requestRenderMode = true; sc.maximumRenderTimeChange = Infinity;
-    sc.skyBox = undefined; sc.skyAtmosphere = undefined;
     sc.fog.enabled = false; sc.shadowMap.enabled = false; viewer.shadows = false;
-    sc.globe.enableLighting = false;          // globe ON so the aerial ground + streets render
+    sc.globe.enableLighting = true;           // sun lighting drives DAY/NIGHT (shadows stay OFF for FPS)
+    sc.skyAtmosphere.show = true;             // sky tints with the sun for dusk/night realism
+    sc.globe.baseColor = Cesium.Color.fromCssColorString('#cfc9ba');  // designed warm ground (no Bing)
+    sc.globe.showGroundAtmosphere = false;
     sc.globe.maximumScreenSpaceError = 2; sc.globe.tileCacheSize = 80;
     sc.msaaSamples = 1; sc.postProcessStages.fxaa.enabled = false; sc.highDynamicRange = false;
     const cc = sc.screenSpaceCameraController;
-    cc.minimumZoomDistance = 120; cc.maximumZoomDistance = 1200; cc.enableCollisionDetection = true;
+    cc.minimumZoomDistance = 90; cc.maximumZoomDistance = 900; cc.enableCollisionDetection = true;
     const requestRender = () => sc.requestRender();
     viewer.camera.setView({
       destination: Cesium.Cartesian3.fromDegrees(cLng, cLat - 0.0016, 380),
       orientation: { heading: Cesium.Math.toRadians(10), pitch: Cesium.Math.toRadians(-42), roll: 0 },
     });
+    // ---- time of day: move the sun → day↔night shading; driven by the auto-play slider ----
+    let streetLights = null, windowShader = null;
+    function setHour(h) {
+      viewer.clock.currentTime = Cesium.JulianDate.addSeconds(
+        Cesium.JulianDate.fromIso8601('2026-05-25T00:00:00+09:00'), h * 3600, new Cesium.JulianDate());  // Tokyo local
+      state.hour = h;
+      const hh = Math.floor(h), mm = Math.round((h - hh) * 60) % 60;
+      const lbl = $('hlabel'); if (lbl) lbl.textContent = String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+      const hs = $('hourSlider'); if (hs) hs.value = h;
+      // manual day↔night tint of the designed ground (flat primitives ignore sun lighting)
+      const nf = (h < 5 || h >= 20) ? 1 : h < 7 ? (7 - h) / 2 : h >= 18 ? (h - 18) / 2 : 0;
+      const lp = (a, b) => a + (b - a) * nf;
+      sc.globe.baseColor = new Cesium.Color(lp(0.81, 0.06), lp(0.79, 0.07), lp(0.73, 0.12), 1);
+      if (streetLights) streetLights.show = nf > 0.25;            // street lamps at night
+      if (windowShader) windowShader.setUniform('u_night', nf);   // lit windows on the glb context
+      requestRender();
+    }
 
-    // ---- split-screen context: LEFT full photoreal · RIGHT photoreal minus the study block
-    // (Cesium entities can't be split, so they read on the RIGHT where photoreal is clipped
-    //  away, and are hidden under photoreal on the LEFT — no "coloured boxes on photoreal").
+    // ---- split: LEFT = full photoreal real city · RIGHT = same photoreal with ONLY the study
+    //      block clipped out, so the coloured energy buildings show in the gap while the REAL
+    //      buildings around them stay visible on the sim side too. Designed streets are drawn
+    //      underneath (PLATEAU LOD2 has no ground mesh) so the gap reads as real streetscape.
     setStatus(TILES === 'google' && userToken ? 'Loading Google Photorealistic tiles' : 'Loading PLATEAU context');
     const isGoogle = (TILES === 'google' && userToken);
     function tunePhotoreal(t) {
-      t.maximumScreenSpaceError = isGoogle ? 20 : 24;
+      t.maximumScreenSpaceError = isGoogle ? 22 : 28;
       t.cacheBytes = 1073741824; t.maximumCacheOverflowBytes = 536870912;   // 1.123 names
       t.foveatedScreenSpaceError = true; t.foveatedConeSize = 0.20;
       t.preloadWhenHidden = false; t.preloadFlightDestinations = false;
@@ -154,21 +187,101 @@ const ramp = (t) => {
       t.cullRequestsWhileMoving = true; t.cullRequestsWhileMovingMultiplier = 60;
       if (isGoogle) { t.dynamicScreenSpaceError = true; t.dynamicScreenSpaceErrorDensity = 0.00278; t.dynamicScreenSpaceErrorFactor = 4.0; }
     }
-    const mkCtx = () => isGoogle
-      ? Cesium.createGooglePhotorealistic3DTileset({ maximumScreenSpaceError: 20 })
-      : Cesium.Cesium3DTileset.fromUrl(PLATEAU_TEXTURED, { maximumScreenSpaceError: 24 });
+    if (useGlbContext) {
+      // ---- stylized context: the georeferenced LOD2 city glb (1.6 MB) with a lit-window
+      //      night shader. Lighter than streaming photoreal and night-capable; no split. ----
+      try {
+        const origin = Cesium.Cartesian3.fromDegrees(139.772, 35.681, 38.0);   // twin anchor + ground
+        const enu = Cesium.Transforms.eastNorthUpToFixedFrame(origin);
+        const swap = Cesium.Matrix4.fromColumnMajorArray([1,0,0,0, 0,0,1,0, 0,1,0,0, 0,0,0,1]); // glb(E,up,N) -> ENU(E,N,up)
+        const modelMatrix = Cesium.Matrix4.multiply(enu, swap, new Cesium.Matrix4());
+        windowShader = new Cesium.CustomShader({
+          lightingModel: Cesium.LightingModel.UNLIT,   // shader drives day↔night fully (no sun washout)
+          uniforms: { u_night: { type: Cesium.UniformType.FLOAT, value: 0.0 } },
+          fragmentShaderText: [
+            'void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial m){',
+            '  vec3 p = fsInput.attributes.positionMC;',
+            '  vec3 n = normalize(fsInput.attributes.normalEC);',
+            '  float shade = 0.6 + 0.4*clamp(n.y*0.5+0.5, 0.0, 1.0);',     // soft top-light for depth
+            '  vec3 dayCol = vec3(0.60,0.63,0.69)*shade;',
+            '  vec3 nightCol = vec3(0.10,0.11,0.15);',
+            '  vec3 facade = mix(dayCol, nightCol, u_night);',
+            '  float wy = fract(p.y/3.2), wx = fract(p.x/3.6), wz = fract(p.z/3.6);',
+            '  float band = step(0.12,wy)*step(wy,0.88);',
+            '  float cols = max(step(0.18,wx)*step(wx,0.82), step(0.18,wz)*step(wz,0.82));',
+            '  vec2 cell = vec2(floor(p.x/3.6)+floor(p.z/3.6)*3.0, floor(p.y/3.2));',
+            '  float hsh = fract(sin(dot(cell, vec2(12.9898,78.233)))*43758.5453);',
+            '  float win = band*cols*step(0.25,hsh)*step(1.0,p.y);',
+            '  m.diffuse = facade;',
+            '  m.emissive = u_night * (win*vec3(1.0,0.82,0.45)*6.0 + vec3(0.025,0.03,0.045));',
+            '}'
+          ].join('\n')
+        });
+        const model = await Cesium.Model.fromGltfAsync({
+          url: '/twin/plateau/nihonbashi_lod2_opt.glb', modelMatrix,
+          customShader: windowShader, backFaceCulling: false });
+        sc.primitives.add(model); window.__tileset = model; window.__tilesLoaded = true;
+        requestRender();
+        setStatus('Stylized LOD2 context · lit-window night (?context=photo = photoreal) · ' + state.metric, 'ok');
+      } catch (e) { setStatus('glb context failed: ' + (e.message||e), 'err'); console.warn(e); }
+    } else {
     try {
-      const tilesetL = await mkCtx(); tunePhotoreal(tilesetL);
+      const mk = () => isGoogle
+        ? Cesium.createGooglePhotorealistic3DTileset({ maximumScreenSpaceError: 20 })
+        : Cesium.Cesium3DTileset.fromUrl(PLATEAU_TEXTURED, { maximumScreenSpaceError: 24 });
+      // ---- clip BOTH tilesets to a tight boundary around the study block → far fewer
+      //      photoreal tiles to draw = better FPS. ?vb=0.005 widens it, ?vb=0.0025 tightens.
+      const VB = parseFloat(params.get('vb') || '0.0035');     // ~330 m half-box
+      const FAR = 0.02;
+      const mkPoly = (f) => new Cesium.ClippingPolygon({ positions: Cesium.Cartesian3.fromDegreesArray(f) });
+      const vbox = [cLng-VB,cLat-VB, cLng+VB,cLat-VB, cLng+VB,cLat+VB, cLng-VB,cLat+VB];
+      const frame = [                                          // 4 strips covering everything OUTSIDE the box
+        [cLng-FAR,cLat-FAR, cLng-VB,cLat-FAR, cLng-VB,cLat+FAR, cLng-FAR,cLat+FAR],
+        [cLng+VB,cLat-FAR, cLng+FAR,cLat-FAR, cLng+FAR,cLat+FAR, cLng+VB,cLat+FAR],
+        [cLng-VB,cLat+VB, cLng+VB,cLat+VB, cLng+VB,cLat+FAR, cLng-VB,cLat+FAR],
+        [cLng-VB,cLat-FAR, cLng+VB,cLat-FAR, cLng+VB,cLat-VB, cLng-VB,cLat-VB] ];
+      const tilesetL = await mk(); tunePhotoreal(tilesetL);
       tilesetL.splitDirection = Cesium.SplitDirection.LEFT; sc.primitives.add(tilesetL);
-      const tilesetR = await mkCtx(); tunePhotoreal(tilesetR);
+      window.__tileset = tilesetL;
+      tilesetL.allTilesLoaded.addEventListener(() => { window.__tilesLoaded = true; requestRender(); });
+      const tilesetR = await mk(); tunePhotoreal(tilesetR);
       tilesetR.splitDirection = Cesium.SplitDirection.RIGHT;
-      if (Cesium.ClippingPolygonCollection)
-        tilesetR.clippingPolygons = new Cesium.ClippingPolygonCollection({
-          inverse: false, edgeWidth: 0,
-          polygons: [ new Cesium.ClippingPolygon({ positions: Cesium.Cartesian3.fromDegreesArray(bbFlat) }) ] });
+      // shift the photoreal DOWN onto the flat globe (height 0) so it shares the ground plane
+      // with the designed streets and the clamped coloured buildings. ?phz tunes the offset.
+      const PHZ = parseFloat(params.get('phz') || '38');
+      const groundTileset = (t) => {
+        const surf = Cesium.Cartesian3.fromDegrees(cLng, cLat, 0);
+        const down = Cesium.Cartesian3.fromDegrees(cLng, cLat, -PHZ);
+        t.modelMatrix = Cesium.Matrix4.fromTranslation(Cesium.Cartesian3.subtract(down, surf, new Cesium.Cartesian3()));
+      };
+      groundTileset(tilesetL); groundTileset(tilesetR);
+      if (Cesium.ClippingPolygonCollection) {
+        // each study footprint, expanded outward ~5 m so it fully swallows the REAL building
+        // (whose PLATEAU footprint is slightly offset from the geojson one).
+        const CLIPBUF = parseFloat(params.get('clipbuf') || '0.00005');   // ~5 m outward
+        const expand = (flat) => {
+          const n = flat.length / 2; let cx = 0, cy = 0;
+          for (let i = 0; i < n; i++) { cx += flat[2*i]; cy += flat[2*i+1]; }
+          cx /= n; cy /= n;
+          const out = [];
+          for (let i = 0; i < n; i++) {
+            const dx = flat[2*i] - cx, dy = flat[2*i+1] - cy, d = Math.hypot(dx, dy) || 1;
+            out.push(flat[2*i] + dx/d * CLIPBUF, flat[2*i+1] + dy/d * CLIPBUF);
+          }
+          return out;
+        };
+        const studyFlat = studyPolys.filter(s => s.flat.length >= 6).map(s => expand(s.flat));
+        // clip the study block out of BOTH sides so the coloured model never overlaps the real
+        // photoreal buildings; the frame strips also bound photoreal to the FPS box. Real context
+        // buildings still surround the block on both sides.
+        const mkClip = () => new Cesium.ClippingPolygonCollection({ inverse: false, polygons: [
+          ...studyFlat.map(f => new Cesium.ClippingPolygon({ positions: Cesium.Cartesian3.fromDegreesArray(f) })),
+          ...frame.map(mkPoly) ] });
+        tilesetL.clippingPolygons = mkClip();
+        tilesetR.clippingPolygons = mkClip();
+      }
       sc.primitives.add(tilesetR);
       sc.splitPosition = 0.5;
-      // draggable divider
       const splitter = document.createElement('div'); splitter.id = 'splitter'; document.body.appendChild(splitter);
       const setSplit = (p) => { p = Math.max(0.05, Math.min(0.95, p)); sc.splitPosition = p; splitter.style.left = (p*100)+'%'; requestRender(); };
       setSplit(0.5);
@@ -177,10 +290,61 @@ const ramp = (t) => {
       window.addEventListener('mouseup', () => { if (dragging) { dragging = false; cc.enableInputs = true; } });
       window.addEventListener('mousemove', (e) => { if (dragging) setSplit(e.clientX / sc.canvas.clientWidth); });
       requestRender();
-      setStatus('Split: LEFT photoreal · RIGHT energy sim · coloured by ' + state.metric, 'ok');
+      setStatus('Split: LEFT real photoreal · RIGHT energy sim (real context kept) · ' + state.metric, 'ok');
     } catch (e) { setStatus('Context tiles failed: ' + (e.message||e), 'err'); console.warn(e); }
+    }   // end else (photoreal context)
 
-    // ---- study buildings (keep entity refs so we can recolour) ----
+    // ---- DESIGNED streetscape: OSM roads + water + kerb trees draped on the globe (replaces
+    //      Bing). scripts/export_streetscape.py → /energy/streetscape.json ----
+    try {
+      const ss = await fetch('/energy/streetscape.json').then(r => r.json());
+      const tierColor = { major:'#3f4047', mid:'#4a4b52', minor:'#585962', path:'#9a937f' };
+      const tierInst = { major:[], mid:[], minor:[], path:[] };
+      for (const r of ss.roads) {
+        const positions = Cesium.Cartesian3.fromDegreesArray(r.ll);
+        if (positions.length < 2) continue;
+        tierInst[r.tier].push(new Cesium.GeometryInstance({
+          geometry: new Cesium.CorridorGeometry({ positions, width: Math.max(2.5, r.w),
+            cornerType: Cesium.CornerType.ROUNDED, vertexFormat: Cesium.VertexFormat.POSITION_ONLY }),
+          attributes: { color: Cesium.ColorGeometryInstanceAttribute.fromColor(Cesium.Color.fromCssColorString(tierColor[r.tier])) } }));
+      }
+      for (const t in tierInst) if (tierInst[t].length)
+        sc.primitives.add(new Cesium.GroundPrimitive({ geometryInstances: tierInst[t],
+          appearance: new Cesium.PerInstanceColorAppearance({ flat:true, translucent:false }),
+          classificationType: Cesium.ClassificationType.TERRAIN }));
+      for (const w of ss.water)
+        sc.primitives.add(new Cesium.GroundPrimitive({ classificationType: Cesium.ClassificationType.TERRAIN,
+          appearance: new Cesium.PerInstanceColorAppearance({ flat:true }),
+          geometryInstances: new Cesium.GeometryInstance({
+            geometry: new Cesium.PolygonGeometry({ polygonHierarchy: new Cesium.PolygonHierarchy(Cesium.Cartesian3.fromDegreesArray(w.ll)), vertexFormat: Cesium.VertexFormat.POSITION_ONLY }),
+            attributes: { color: Cesium.ColorGeometryInstanceAttribute.fromColor(Cesium.Color.fromCssColorString('#3b6ea5')) } }) }));
+      // kerb trees as clamped billboards
+      const tcv = document.createElement('canvas'); tcv.width = tcv.height = 32; const tg = tcv.getContext('2d');
+      tg.fillStyle = '#34552b'; tg.beginPath(); tg.arc(16, 13, 12, 0, 7); tg.fill();
+      tg.fillStyle = '#5a3d24'; tg.fillRect(14, 22, 4, 9);
+      const treeImg = tcv.toDataURL();
+      // trees + lamps HIDDEN by default for now; ?trees=0.3 shows ~30%, ?trees=1 shows all
+      const treeDensity = parseFloat(params.get('trees') || '0');
+      const treePts = treeDensity > 0
+        ? ss.trees.filter((_, i) => i % Math.max(1, Math.round(1 / treeDensity)) === 0) : [];
+      const trees = new Cesium.BillboardCollection({ scene: sc });
+      for (const [lng, lat] of treePts) trees.add({ position: Cesium.Cartesian3.fromDegrees(lng, lat),
+        image: treeImg, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+        scale: 0.8, scaleByDistance: new Cesium.NearFarScalar(150, 1.0, 1600, 0.3) });
+      sc.primitives.add(trees);
+      // warm street lamps at the same points, toggled on at night by setHour()
+      streetLights = new Cesium.PointPrimitiveCollection();
+      for (const [lng, lat] of treePts) streetLights.add({ position: Cesium.Cartesian3.fromDegrees(lng, lat, 6.5),
+        color: Cesium.Color.fromCssColorString('#ffd27a'), pixelSize: 4, scaleByDistance: new Cesium.NearFarScalar(150, 1.5, 1700, 0.35) });
+      streetLights.show = false;
+      sc.primitives.add(streetLights);
+      requestRender();
+    } catch (e) { console.warn('streetscape failed', e); }
+
+    // ---- study buildings (keep entity refs so we can recolour). VSCALE lifts them to
+    //      city scale so the sim block reads as tall as its real neighbours (?vscale=2.5 …) ----
+    const VSCALE = parseFloat(params.get('vscale') || '2');
+    const GROUND = parseFloat(params.get('vground') || '38');   // photoreal ground (ellipsoidal m); pins the base so buildings don't float
     const ents = studyPolys.map(({ b, flat }) => ({ b, entity: viewer.entities.add({
       name: 'Building ' + b.id,
       description: `<b>Building ${b.id}</b><br>${b.use || ''} · ${b.program || ''}<br>` +
@@ -192,8 +356,8 @@ const ramp = (t) => {
           `S2 (+R +40%): ${b.scn.s2.wwr} / ${b.scn.s2.r}` : ''),
       polygon: { hierarchy: Cesium.Cartesian3.fromDegreesArray(flat),
         material: Cesium.Color.GRAY, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-        extrudedHeight: b.height, extrudedHeightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
-        outline: true, outlineColor: Cesium.Color.fromCssColorString('#0b1014').withAlpha(0.6) } }) }));
+        extrudedHeight: b.height * VSCALE, extrudedHeightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+        outline: true, outlineColor: Cesium.Color.fromCssColorString('#05121a'), outlineWidth: 2 } }) }));
 
     viewer.entities.add({ polyline: {
       positions: Cesium.Cartesian3.fromDegreesArray(bbFlat.concat([bb[0][0], bb[0][1]])),
@@ -239,14 +403,27 @@ const ramp = (t) => {
       function s2() { for (const el of host.children) el.classList.toggle('on', el.dataset.k === get()); }
       host._sync = s2;
     }
-    function sync() { for (const h of [$('metricBtns'), $('demandBtns'), $('supplyBtns')]) h._sync && h._sync(); }
-    mkBtns($('metricBtns'), [['energy','ENERGY'],['intensity','EUI'],['cost','COST'],['wwr','WWR']],
-           () => state.metric, k => state.metric = k);
+    function sync() { for (const h of [$('demandBtns'), $('supplyBtns')]) h._sync && h._sync(); }
     mkBtns($('demandBtns'), [['baseline','BASE'],['s1','S1 −5%'],['s2','S2 −15%']],
            () => state.demand, k => state.demand = k);
     mkBtns($('supplyBtns'), [['baseline','GRID'],['pv_bess','PV+BESS'],['pv_bess_chp','+CHP']],
            () => state.supply, k => state.supply = k);
-    sync(); recolor();
+
+    // COLOUR BY — slider scrubs the 4 metrics (no clicking)
+    const METRIC_KEYS = ['energy','intensity','cost','wwr'], METRIC_NAME = ['ENERGY','EUI','COST','WWR'];
+    const mSlider = $('metricSlider');
+    mSlider.oninput = () => { const i = +mSlider.value; state.metric = METRIC_KEYS[i]; $('metricName').textContent = METRIC_NAME[i]; recolor(); };
+
+    // TIME — slider + ▶ auto-play that walks the sun through a full day↔night
+    const hSlider = $('hourSlider');
+    hSlider.oninput = () => { stopPlay(); setHour(+hSlider.value); };
+    let playTimer = null;
+    function stopPlay() { if (playTimer) { clearInterval(playTimer); playTimer = null; $('playBtn').classList.remove('on'); $('playBtn').textContent = '▶'; } }
+    function startPlay() { $('playBtn').classList.add('on'); $('playBtn').textContent = '⏸';
+      playTimer = setInterval(() => setHour((state.hour + 0.15) % 24), 90); }   // ~14 s per day
+    $('playBtn').onclick = () => playTimer ? stopPlay() : startPlay();
+
+    sync(); recolor(); setHour(12); window.__READY = true;
 
   } catch (err) { setStatus('Error: ' + (err.message || err), 'err'); console.error(err); }
 })();

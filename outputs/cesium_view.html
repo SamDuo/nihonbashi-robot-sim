@@ -30,7 +30,7 @@
   <input id="hslider" type="range" min="0" max="23" value="14" style="width:220px;accent-color:#ff7043">
   <span style="display:inline-block;width:120px;height:10px;border-radius:2px;
     background:linear-gradient(90deg,#2b6cff,#13c08a,#ffb347,#ff5436)"></span>
-  <span style="color:#8fb3c0">cool→hot · PLATEAU mode</span>
+  <span style="color:#8fb3c0">cool→hot · drag = time of day</span>
 </div>
 
 <script>
@@ -38,7 +38,7 @@
 const params = new URLSearchParams(window.location.search);
 const SCENARIO = params.get('scenario') || 'proactive';
 const HOUR = parseInt(params.get('hour') || '14', 10);
-const PLATEAU_MODE = params.get('plateau') || 'volumes';  // off | volumes | textured
+const PLATEAU_MODE = params.get('plateau') || 'textured';  // off | volumes | textured (textured by default)
 
 // ┌──────────────────────────────────────────────────────────────────────┐
 // │  PASTE YOUR CESIUM ION TOKEN HERE to enable Google Photorealistic      │
@@ -117,9 +117,18 @@ function parseCsv(text) {
       terrainProvider = new Cesium.EllipsoidTerrainProvider();
     }
 
-    // ion Bing Maps Aerial w/Labels (asset 3) — fixes the OSM 403 + shows street labels.
-    // Needs the user's ion token (window.ION_TOKEN_OVERRIDE from ion_token.js).
-    const baseLayer = Cesium.ImageryLayer.fromProviderAsync(Cesium.IonImageryProvider.fromAssetId(3));
+    // STREET-GRID base (Bing Roads, ion asset 4) instead of satellite: a flat road network under
+    // the 3D buildings removes the "aerial roof under building" doubling. ?base=aerial = Bing Aerial+Labels (3).
+    async function makeBaseLayer() {
+      const order = params.get('base') === 'aerial' ? [3, 4] : [4, 3];
+      for (const id of order) {
+        try { const p = await Cesium.IonImageryProvider.fromAssetId(id); window.__BASE_ASSET = id;
+              console.log('[twin] base imagery asset', id); return new Cesium.ImageryLayer(p); }
+        catch (e) { console.warn('base imagery ' + id + ' failed', e); }
+      }
+      return undefined;
+    }
+    const baseLayer = await makeBaseLayer();
     setStatus('Constructing viewer');
     const viewer = new Cesium.Viewer('cesium', {
       baseLayer,
@@ -129,14 +138,12 @@ function parseCsv(text) {
       timeline: true, animation: true, fullscreenButton: false,
       infoBox: true, selectionIndicator: true
     });
-    viewer.clockViewModel.shouldAnimate = true;
-    viewer.scene.skyBox = undefined;
-    viewer.scene.skyAtmosphere = undefined;
-    // performance (globe stays ON — heat drapes on it; clock stays live for agents,
-    // so NO requestRenderMode here)
+    viewer.clockViewModel.shouldAnimate = true; window.__viewer = viewer;
+    // performance (globe stays ON — heat drapes on it; clock stays live for agents, so NO
+    // requestRenderMode). Sky + sun lighting kept ON so the clock drives a DAY ↔ NIGHT cycle.
     const sc = viewer.scene;
     sc.fog.enabled = false; sc.shadowMap.enabled = false; viewer.shadows = false;
-    sc.globe.enableLighting = false; sc.globe.maximumScreenSpaceError = 2; sc.globe.tileCacheSize = 80;
+    sc.globe.enableLighting = true; sc.globe.maximumScreenSpaceError = 2; sc.globe.tileCacheSize = 80;
     sc.msaaSamples = 1; sc.postProcessStages.fxaa.enabled = false; sc.highDynamicRange = false;
     const cc = sc.screenSpaceCameraController;
     cc.minimumZoomDistance = 120; cc.maximumZoomDistance = 1400; cc.enableCollisionDetection = true;
@@ -200,7 +207,9 @@ function parseCsv(text) {
         setStatus('Clipping not available. Showing full Chuo ku.', 'ok');
       }
 
+      window.__tileset = tileset;
       tileset.allTilesLoaded.addEventListener(() => {
+        window.__tilesLoaded = true;
         setStatus('PLATEAU ready. Loading agent animation.', 'ok');
       });
       tileset.tileFailed.addEventListener(e => {
@@ -240,6 +249,9 @@ function parseCsv(text) {
         document.getElementById('hslider').value = HOUR; document.getElementById('hh').textContent = HOUR;
         document.getElementById('hslider').oninput = (e) => {
           const h = +e.target.value; document.getElementById('hh').textContent = h; setHeat(h);
+          // drag also moves the sun → day/night shading follows the heat hour (Tokyo local)
+          viewer.clock.currentTime = Cesium.JulianDate.addSeconds(
+            Cesium.JulianDate.fromIso8601('2026-05-25T00:00:00+09:00'), h * 3600, new Cesium.JulianDate());
         };
       }
     } catch (e) { console.warn('heat overlay failed', e); }
@@ -280,11 +292,12 @@ function parseCsv(text) {
       // Jump the clock to the requested hour for the initial frame.
       const startSeconds = HOUR * 3600;
       viewer.clock.currentTime = Cesium.JulianDate.addSeconds(
-        Cesium.JulianDate.fromIso8601('2026-05-25T00:00:00Z'),
+        Cesium.JulianDate.fromIso8601('2026-05-25T00:00:00+09:00'),   // Tokyo local → correct sun angle
         startSeconds,
         new Cesium.JulianDate()
       );
       viewer.clockViewModel.shouldAnimate = true;
+      window.__READY = true;
       setStatus('Playback ready. Press play in the bottom left widget.', 'ok');
     } catch (czmlErr) {
       setStatus('CZML failed. ' + (czmlErr.message || czmlErr), 'err');
