@@ -33,8 +33,15 @@
     padding:10px 16px; background:rgba(8,12,18,.86); color:#cfe9f2;
     border-top:1px solid rgba(120,190,215,.16); }
   #dock .grp{display:flex;flex-direction:column;gap:5px;min-width:0}
-  #dock .lbl{font-size:9px;color:#6f8896;letter-spacing:.1em;display:flex;align-items:center;gap:5px;
+  /* ---- ONE microlabel style (FINDING-005) --------------------------------
+     Every all-caps group label — COLOUR BY, DEMAND, SUPPLY, LAYERS, SIM TIME,
+     LEGEND — is the same 11px / .08em / 600 at ~62% ink. The opacity is baked
+     into the colour (not the opacity property) so live values inside a label can
+     still be rendered at full strength. */
+  .lbl{font-size:11px;letter-spacing:.08em;font-weight:600;color:rgba(207,233,242,.62);
+    text-transform:uppercase;line-height:1.2;display:flex;align-items:center;gap:5px;
     white-space:nowrap}
+  .lbl .val{color:#35e0ff;font-weight:700;font-variant-numeric:tabular-nums}
   #dock .btns{display:flex;gap:4px}
   #dock .row{display:flex;align-items:center;gap:6px}
   #dock .btn{cursor:pointer;font-size:10px;padding:4px 8px;border:1px solid rgba(80,220,255,.25);
@@ -108,18 +115,18 @@
 </div>
 
 <div id="dock">
-  <div class="grp"><div class="lbl">COLOUR BY · <span id="metricName">ENERGY</span></div>
+  <div class="grp"><div class="lbl">COLOUR BY · <span id="metricName" class="val">ENERGY</span></div>
     <input id="metricSlider" class="sld" type="range" min="0" max="3" step="1" value="0"></div>
   <div class="grp"><div class="lbl">DEMAND</div><div class="btns" id="demandBtns"></div></div>
   <div class="grp"><div class="lbl">SUPPLY</div><div class="btns" id="supplyBtns"></div></div>
   <div class="grp"><div class="lbl">LAYERS<span class="info" id="agentsInfo" tabindex="0" role="button"
       aria-label="what the agent dots mean">i<span class="pop" id="agentsPop">Agent layer not loaded.</span></span></div>
     <div class="btns" id="layerBtns"></div></div>
-  <div class="grp"><div class="lbl">TIME · <span id="hlabel">12:00</span></div>
+  <div class="grp"><div class="lbl">TIME · <span id="hlabel" class="val">12:00</span></div>
     <div class="row"><div class="btn" id="playBtn" title="auto day/night">▶</div>
       <input id="hourSlider" class="sld" type="range" min="0" max="23.99" step="0.25" value="12"></div></div>
   <div class="grp" id="leg" style="display:none">
-    <div class="lbl">LEGEND · <span id="leg-title">ENERGY</span><span id="leg-unit"></span><span class="info right" id="legInfo"
+    <div class="lbl">LEGEND · <span id="leg-title" class="val">ENERGY</span><span id="leg-unit"></span><span class="info right" id="legInfo"
         tabindex="0" role="button" aria-label="how to read the colour ramp">i<span class="pop">Colour ramp runs low
         (blue) to high (red) across the 22 study buildings only. Grey massing is PLATEAU context and carries no
         data.</span></span></div>
