@@ -22,11 +22,12 @@ Figures
   F3  District electricity: composition and seasonality
   F4  Data pipeline
   F7  System architecture
+  F8  Ping-derived occupancy profiles, six buildings
 
-Conventions (project_design.md Section 10)
+Conventions (project_design.md Section 6.1)
   * Energy is SITE electricity, kWh. Intensity is kWh/m2/yr, denominator = GFA.
   * Building load and vehicle charging are never summed into "building energy".
-  * Index_energy EUI absolute scale is UNVERIFIED (Section 6.10). That caveat
+  * Index_energy EUI absolute scale is UNVERIFIED (Section 5.11). That caveat
     lives in the caption, not in the image.
 """
 from __future__ import annotations
@@ -128,7 +129,7 @@ SRC_SCENE = "outputs/energy/energy_scene.json"
 SRC_CHAIN = ("Index_energy.xlsx {baseline, s1, s2}.EUI x GFA "
              "(tokyo_bldg_smaller_block.geojson) -> " + SRC_SCENE)
 UNVERIFIED = ("Index_energy EUI, site kWh/m2/yr — ABSOLUTE SCALE UNVERIFIED "
-              "(project_design.md 6.10); relative comparison only")
+              "(project_design.md 5.11); relative comparison only")
 
 # fig_id -> record, filled as each figure is written
 RECORDS: list[dict] = []
@@ -572,10 +573,96 @@ def fig_f7() -> Path:
     return p
 
 
+# ==========================================================================
+# F8 — ping-derived occupancy profiles, small multiples
+# ==========================================================================
+# Six of the 22 study buildings, chosen to show the three regimes the
+# occupancy layer actually contains: a normal daytime peak, a shape-only
+# record whose magnitude was lost to imputation, and the night-over-day
+# inversion attributed to overnight dwell bias. The night test window
+# (22:00-05:00) is shaded so the inversion test is readable off the chart.
+F8_PANELS = [
+    (3042, "normal"),
+    (4050, "normal"),
+    (3037, "normal"),
+    (2563, "shape-only"),
+    (2070, "inverted"),
+    (4562, "inverted"),
+]
+F8_REGIME_COLOR = {
+    "normal": SCENARIO_COLORS["s1"],
+    "shape-only": LAYER_COLORS["vehicle"],
+    "inverted": SCENARIO_COLORS["s2"],
+}
+NIGHT_HOURS = list(range(22, 24)) + list(range(0, 6))
+DAY_HOURS = list(range(9, 18))
+
+
+def _window_mean(v, hours):
+    return float(np.mean([v[h] for h in hours]))
+
+
+def fig_f8() -> Path:
+    occ = scene["occupancy_hourly"]
+    use_by_id = {b["id"]: b["use"] for b in B}
+    hours = np.arange(24)
+
+    fig, axes = plt.subplots(2, 3, figsize=(9.4, 4.9), sharex=True, sharey=True)
+    inverted_ids = []
+    for ax, (bid, regime) in zip(axes.ravel(), F8_PANELS):
+        v = occ[str(bid)]
+        color = F8_REGIME_COLOR[regime]
+        ax.axvspan(-0.5, 5.5, color="#EDEDED", zorder=0)
+        ax.axvspan(21.5, 23.5, color="#EDEDED", zorder=0)
+        ax.grid(axis="y", zorder=1)
+        ax.set_axisbelow(True)
+        ax.plot(hours, v, color=color, lw=1.8, zorder=3)
+        ax.fill_between(hours, 0, v, color=color, alpha=0.13, zorder=2)
+
+        night, day = _window_mean(v, NIGHT_HOURS), _window_mean(v, DAY_HOURS)
+        if night > day:
+            inverted_ids.append(bid)
+        ax.set_title(f"{bid}  {use_by_id.get(bid, '')[:16]}", loc="left", pad=6,
+                     fontsize=9.5)
+        # headroom above the 100 % ceiling keeps the two annotations clear of the
+        # curve in every regime, including the midnight-peaking inverted panels.
+        ax.text(0.98, 0.97, regime, transform=ax.transAxes, ha="right", va="top",
+                fontsize=8, color=color, fontweight="bold")
+        ax.text(0.98, 0.85, f"night {night:.0f} · day {day:.0f}",
+                transform=ax.transAxes, ha="right", va="top",
+                fontsize=7.5, color=MUTED)
+        ax.set_xticks([0, 6, 12, 18, 23])
+        ax.set_yticks([0, 50, 100])
+        ax.set_xlim(-0.5, 23.5)
+        ax.set_ylim(0, 145)
+
+    for ax in axes[-1]:
+        ax.set_xlabel("Hour of day")
+    for ax in axes[:, 0]:
+        ax.set_ylabel("% of daily max")
+
+    fig.suptitle("Ping-derived occupancy profiles, six study buildings",
+                 x=0.008, ha="left", fontsize=10.5, fontweight="bold")
+    fig.text(0.008, 0.905, "shaded band = 22:00–05:00 night test window",
+             fontsize=8, color=MUTED, ha="left")
+    fig.tight_layout(rect=(0, 0, 1, 0.90))
+
+    p = FIGDIR / "F8_occupancy_profiles.png"
+    fig.savefig(p)
+    plt.close(fig)
+
+    all_inverted = [b["id"] for b in B
+                    if _window_mean(occ[str(b["id"])], NIGHT_HOURS)
+                    > _window_mean(occ[str(b["id"])], DAY_HOURS)]
+    F8_FACTS.update(dict(panel_inverted=inverted_ids, block_inverted=all_inverted))
+    return p
+
+
 # --------------------------------------------------------------------------
 F1_FACTS: dict = {}
 F2_FACTS: dict = {}
 F3_FACTS: dict = {}
+F8_FACTS: dict = {}
 
 
 def main():
@@ -590,7 +677,7 @@ def main():
         f"−20 %), vermillion = S2 (WWR −20 % and R-value +40 %); the connector spans the "
         f"baseline-to-S2 travel. The dashed line at {PRORATA:.2f} kWh/m²/yr is the single "
         f"pro-rata constant the twin previously assigned to every building. Denominator is "
-        f"gross floor area. The absolute EUI scale is unverified (project_design.md §6.10): "
+        f"gross floor area. The absolute EUI scale is unverified (project_design.md §5.11): "
         f"Σ(EUI × GFA) = {EUI_TOTAL:,.0f} kWh/yr is {EUI_RATIO:.1f}× the hourly-workbook "
         f"building load of {BUILD_WB:,.0f} kWh/yr, so the ranking and the relative scenario "
         f"deltas are the defensible reading, not the level.",
@@ -607,7 +694,7 @@ def main():
         f"flat 15 % the viewer previously applied. "
         f"{F2_FACTS['n_under_1pct']} of {N} buildings "
         f"({', '.join(str(i) for i in F2_FACTS['zero_ids'])}) gains under 1 % from the S2 "
-        f"package. Absolute EUI scale unverified (§6.10).",
+        f"package. Absolute EUI scale unverified (§5.11).",
         "Index_energy.xlsx {baseline, s2}.EUI x GFA -> " + SRC_SCENE, UNVERIFIED)
 
     p3 = fig_f3()
@@ -677,10 +764,31 @@ def main():
         note="dashed elements (vehicle traffic layer, simulation-ready export, L3 "
              "simulation twin, supply re-run, MCP channel) are designed, not executed")
 
+    p8 = fig_f8()
+    record(
+        "F8", p8, "Ping-derived occupancy profiles, six study buildings",
+        "Hourly occupancy for six of the 22 study buildings, as a percentage of each "
+        "building's own daily maximum, showing the three regimes the occupancy layer "
+        "contains. Buildings 3042, 4050 and 3037 have a normal daytime peak. Building "
+        "2563 is one of the 31 buildings whose magnitude was lost to imputation, so only "
+        "the profile shape survives. Buildings 2070 and 4562 are night-over-day inverted, "
+        "the failure mode attributed to overnight dwell bias rather than to an extraction "
+        "error. The shaded band is the 22:00–05:00 window of the inversion test, whose "
+        "companion window is 09:00–17:00; the two window means are printed in each panel. "
+        "Approximately 24 of the 136 buildings with data in the parent dataset are "
+        "inverted on this test, and the count ranges from 15 to 27 across reasonable "
+        "definitions of the window pair. Source schedules are derived by the studio from "
+        "BlogWatcher GPS traces over 15 August 2018 weekdays; this repository holds a "
+        "single-day extract (project_design.md §5.5).",
+        "outputs/energy/energy_scene.json occupancy_hourly (studio-derived from "
+        "BlogWatcher GPS pings) -> " + SRC_SCENE,
+        "% of each building's own daily maximum, 0-100; shape only, magnitude not implied",
+        note="2563 is shape-only: no usable occupancy magnitude (project_design.md §5.6)")
+
     cap = write_captions()
 
     print("\n" + "=" * 78)
-    print("SENTENCES THE FIGURES FILL (project_design.md §14)")
+    print("SENTENCES THE FIGURES FILL (project_design.md §8)")
     print("=" * 78)
     print(
         f"F1  Replacing the pro-rata split with per-building intensity widens the block's\n"
@@ -715,9 +823,16 @@ def main():
     )
     print(
         f"\nF7  The system is four source families reconciled into one scene contract "
-        f"(energy_scene.json)\n    that three viewer tiers read without recomputing anything, and the "
+        f"(energy_scene.json)\n    that three fidelity tiers read without recomputing anything, and the "
         f"loop from the corrected\n    load back to the supply optimisation is the one arrow in the "
         f"figure that is still dashed."
+    )
+    print(
+        f"\nF8  Ping-derived occupancy is a shape prior, not a magnitude: of the six panels\n"
+        f"    shown, {len(F8_FACTS['panel_inverted'])} are night-over-day inverted "
+        f"({', '.join(str(i) for i in F8_FACTS['panel_inverted'])}), and\n"
+        f"    {len(F8_FACTS['block_inverted'])} of the {N} study buildings are inverted on the "
+        f"same test."
     )
     print("\n" + "=" * 78)
     print(f"{len(RECORDS)} figures written to {FIGDIR.relative_to(ROOT)}/")

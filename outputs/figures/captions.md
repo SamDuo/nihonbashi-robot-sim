@@ -8,20 +8,20 @@ here and belong in the document, not inside the image.
 
 `outputs/figures/F1_building_energy_intensity.png` · 300 dpi · 2376x1826 px · 266 kB
 
-**Caption.** Site energy use intensity of the 22 buildings in the Nihonbashi study block, sorted by baseline intensity. Grey = baseline, blue = S1 (window-to-wall ratio −20 %), vermillion = S2 (WWR −20 % and R-value +40 %); the connector spans the baseline-to-S2 travel. The dashed line at 49.93 kWh/m²/yr is the single pro-rata constant the twin previously assigned to every building. Denominator is gross floor area. The absolute EUI scale is unverified (project_design.md §6.10): Σ(EUI × GFA) = 7,923,977 kWh/yr is 12.1× the hourly-workbook building load of 655,461 kWh/yr, so the ranking and the relative scenario deltas are the defensible reading, not the level.
+**Caption.** Site energy use intensity of the 22 buildings in the Nihonbashi study block, sorted by baseline intensity. Grey = baseline, blue = S1 (window-to-wall ratio −20 %), vermillion = S2 (WWR −20 % and R-value +40 %); the connector spans the baseline-to-S2 travel. The dashed line at 49.93 kWh/m²/yr is the single pro-rata constant the twin previously assigned to every building. Denominator is gross floor area. The absolute EUI scale is unverified (project_design.md §5.11): Σ(EUI × GFA) = 7,923,977 kWh/yr is 12.1× the hourly-workbook building load of 655,461 kWh/yr, so the ranking and the relative scenario deltas are the defensible reading, not the level.
 
 - Source: Index_energy.xlsx {baseline, s1, s2}.EUI x GFA (tokyo_bldg_smaller_block.geojson) -> outputs/energy/energy_scene.json
-- Magnitude layer: Index_energy EUI, site kWh/m2/yr — ABSOLUTE SCALE UNVERIFIED (project_design.md 6.10); relative comparison only
+- Magnitude layer: Index_energy EUI, site kWh/m2/yr — ABSOLUTE SCALE UNVERIFIED (project_design.md 5.11); relative comparison only
 - Built: 2026-07-28
 
 ## F2 — Annual saving under S2 by building
 
 `outputs/figures/F2_retrofit_priority_s2.png` · 300 dpi · 1910x1733 px · 169 kB
 
-**Caption.** Absolute annual electricity saving under retrofit scenario S2 against baseline, per building, sorted descending; the five largest are highlighted and support decision D-1 (where to retrofit first). Saving = (EUI_baseline − EUI_S2) × GFA. The label on each bar is that building's own percentage reduction, unweighted; the GFA-weighted block reduction is 7.91 %, not the flat 15 % the viewer previously applied. 1 of 22 buildings (2563) gains under 1 % from the S2 package. Absolute EUI scale unverified (§6.10).
+**Caption.** Absolute annual electricity saving under retrofit scenario S2 against baseline, per building, sorted descending; the five largest are highlighted and support decision D-1 (where to retrofit first). Saving = (EUI_baseline − EUI_S2) × GFA. The label on each bar is that building's own percentage reduction, unweighted; the GFA-weighted block reduction is 7.91 %, not the flat 15 % the viewer previously applied. 1 of 22 buildings (2563) gains under 1 % from the S2 package. Absolute EUI scale unverified (§5.11).
 
 - Source: Index_energy.xlsx {baseline, s2}.EUI x GFA -> outputs/energy/energy_scene.json
-- Magnitude layer: Index_energy EUI, site kWh/m2/yr — ABSOLUTE SCALE UNVERIFIED (project_design.md 6.10); relative comparison only
+- Magnitude layer: Index_energy EUI, site kWh/m2/yr — ABSOLUTE SCALE UNVERIFIED (project_design.md 5.11); relative comparison only
 - Built: 2026-07-28
 
 ## F3 — District electricity: composition and seasonality
@@ -54,3 +54,14 @@ here and belong in the document, not inside the image.
 - Magnitude layer: schematic, no magnitude layer
 - Built: 2026-07-28
 - Note: dashed elements (vehicle traffic layer, simulation-ready export, L3 simulation twin, supply re-run, MCP channel) are designed, not executed
+
+## F8 — Ping-derived occupancy profiles, six study buildings
+
+`outputs/figures/F8_occupancy_profiles.png` · 300 dpi · 2813x1457 px · 219 kB
+
+**Caption.** Hourly occupancy for six of the 22 study buildings, as a percentage of each building's own daily maximum, showing the three regimes the occupancy layer contains. Buildings 3042, 4050 and 3037 have a normal daytime peak. Building 2563 is one of the 31 buildings whose magnitude was lost to imputation, so only the profile shape survives. Buildings 2070 and 4562 are night-over-day inverted, the failure mode attributed to overnight dwell bias rather than to an extraction error. The shaded band is the 22:00–05:00 window of the inversion test, whose companion window is 09:00–17:00; the two window means are printed in each panel. Approximately 24 of the 136 buildings with data in the parent dataset are inverted on this test, and the count ranges from 15 to 27 across reasonable definitions of the window pair. Source schedules are derived by the studio from BlogWatcher GPS traces over 15 August 2018 weekdays; this repository holds a single-day extract (project_design.md §5.5).
+
+- Source: outputs/energy/energy_scene.json occupancy_hourly (studio-derived from BlogWatcher GPS pings) -> outputs/energy/energy_scene.json
+- Magnitude layer: % of each building's own daily maximum, 0-100; shape only, magnitude not implied
+- Built: 2026-07-28
+- Note: 2563 is shape-only: no usable occupancy magnitude (project_design.md §5.6)
