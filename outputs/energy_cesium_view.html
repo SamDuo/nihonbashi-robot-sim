@@ -8,31 +8,62 @@
 <script src="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Cesium.js"></script>
 <script src="ion_token.js"></script><!-- gitignored; sets window.ION_TOKEN_OVERRIDE -->
 <style>
-  html, body { margin:0; padding:0; height:100%; font-family: system-ui, sans-serif; }
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; font-family: system-ui, sans-serif; }
   #cesium { position:absolute; inset:0; }
-  #status { position:fixed; top:8px; right:8px; max-width:340px; background:rgba(0,0,0,.78);
+  /* Top row is a three-slot band: KPI card left, notice centre, status right. The widths
+     are capped so the three can never meet, at any viewport >= 1200px. */
+  #status { position:fixed; top:8px; right:8px; max-width:320px; background:rgba(0,0,0,.78);
     color:#fff; padding:6px 10px; border-radius:6px; font-size:11px; line-height:1.4; z-index:1000; white-space:pre-line; }
   .ok{background:rgba(40,130,40,.85)!important} .err{background:rgba(180,40,40,.9)!important}
   #hud { position:fixed; top:8px; left:8px; background:rgba(8,12,18,.82); color:#cfe9f2;
-    padding:8px 11px; border-radius:6px; font-size:12px; z-index:1000; min-width:240px; }
+    padding:8px 11px; border-radius:6px; font-size:12px; z-index:1000; min-width:240px; max-width:330px;
+    box-sizing:border-box; }
   #hud .big{font-size:22px;font-weight:700;color:#fff;line-height:1.1}
   #hud .sub{color:#8fb3c0;font-size:11px;margin-top:3px}
-  #leg { position:fixed; bottom:12px; right:12px; background:rgba(8,12,18,.82); color:#cfe9f2;
-    padding:8px 10px; border-radius:6px; font-size:11px; z-index:1000; }
-  #leg .bar{height:10px;width:200px;border-radius:2px;margin:4px 0;}
-  #leg .row{display:flex;justify-content:space-between;width:200px;color:#8fb3c0}
-  #ctl { position:fixed; bottom:12px; left:50%; transform:translateX(-50%); display:flex; gap:14px;
-    background:rgba(8,12,18,.86); padding:7px 12px; border-radius:7px; z-index:1000; align-items:center; }
-  #ctl .grp{display:flex;flex-direction:column;gap:3px}
-  #ctl .lbl{font-size:9px;color:#6f8896;letter-spacing:.1em}
-  #ctl .btns{display:flex;gap:4px}
-  #ctl .btn{cursor:pointer;font-size:10px;padding:4px 8px;border:1px solid rgba(80,220,255,.25);
+  /* ---- ONE BOTTOM DOCK ---------------------------------------------------
+     Controls AND the metric legend live in a single full-width bar pinned to the
+     bottom edge. Nothing floats over anything else: the legend is the right-most
+     section of the same flex row, and the row wraps below ~1200px instead of
+     colliding. --dock-h is measured at runtime (see setDockH) so the Cesium credit
+     container can be lifted clear of the bar. */
+  #dock { position:fixed; left:0; right:0; bottom:0; z-index:1000; box-sizing:border-box;
+    display:flex; flex-wrap:wrap; align-items:flex-end; column-gap:22px; row-gap:12px;
+    padding:10px 16px; background:rgba(8,12,18,.86); color:#cfe9f2;
+    border-top:1px solid rgba(120,190,215,.16); }
+  #dock .grp{display:flex;flex-direction:column;gap:5px;min-width:0}
+  #dock .lbl{font-size:9px;color:#6f8896;letter-spacing:.1em;display:flex;align-items:center;gap:5px;
+    white-space:nowrap}
+  #dock .btns{display:flex;gap:4px}
+  #dock .row{display:flex;align-items:center;gap:6px}
+  #dock .btn{cursor:pointer;font-size:10px;padding:4px 8px;border:1px solid rgba(80,220,255,.25);
     border-radius:3px;background:rgba(8,12,18,.7);color:#9fc4d2;letter-spacing:.05em}
-  #ctl .btn:hover{color:#fff;border-color:#35e0ff}
-  #ctl .btn.on{background:#35e0ff;color:#06141a;border-color:#35e0ff;font-weight:700}
-  #ctl .sld{width:140px;accent-color:#35e0ff;cursor:pointer;vertical-align:middle}
-  #ctl .row{display:flex;align-items:center;gap:6px}
-  #notice { position:fixed; top:8px; left:50%; transform:translateX(-50%); display:none; max-width:min(720px,86vw);
+  #dock .btn:hover{color:#fff;border-color:#35e0ff}
+  #dock .btn.on{background:#35e0ff;color:#06141a;border-color:#35e0ff;font-weight:700}
+  #dock .sld{width:140px;accent-color:#35e0ff;cursor:pointer;vertical-align:middle}
+  /* legend = right-most dock section, never a floating panel */
+  #leg { margin-left:auto; font-size:11px; }
+  #leg .bar{height:8px;width:190px;border-radius:2px;}
+  #leg .row{display:flex;justify-content:space-between;width:190px;color:#8fb3c0;font-size:10px}
+  /* ---- ⓘ popover: captions live here, not as floating text ---------------- */
+  .info{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;
+    width:14px;height:14px;border-radius:50%;border:1px solid rgba(120,190,215,.45);background:transparent;
+    color:#8fb3c0;font:600 9px/1 system-ui,sans-serif;letter-spacing:0;cursor:help;padding:0}
+  .info:hover,.info:focus-visible{background:#35e0ff;color:#06141a;border-color:#35e0ff;outline:none}
+  .info .pop{display:none;position:absolute;z-index:1200;bottom:calc(100% + 8px);left:-8px;
+    width:max-content;max-width:270px;white-space:normal;text-align:left;padding:7px 9px;
+    font:400 11px/1.45 system-ui,sans-serif;letter-spacing:0;text-transform:none;color:#cfe9f2;cursor:auto;
+    background:rgba(8,12,18,.94);border:1px solid rgba(120,190,215,.22);border-radius:6px;
+    box-shadow:0 6px 22px rgba(0,0,0,.5)}
+  .info.down .pop{bottom:auto;top:calc(100% + 8px)}
+  .info.right .pop{left:auto;right:-8px}
+  .info:hover .pop,.info:focus .pop,.info:focus-within .pop,.info.open .pop{display:block}
+  /* Cesium's credit container is contractual and stays fully visible — it is simply
+     lifted above the dock so our own chrome can never sit on top of it. */
+  .cesium-viewer-bottom{bottom:calc(var(--dock-h, 76px) + 8px)!important;left:8px!important;z-index:1001}
+  /* the notice lives in the centre slot BETWEEN the KPI card and the status chip: its band is
+     bounded by their reserved widths, so it centres itself without ever touching either. */
+  #notice { position:fixed; top:8px; left:354px; right:344px; margin:0 auto; display:none;
+    max-width:600px; box-sizing:border-box;
     background:rgba(120,74,10,.92); color:#ffe9c4; border:1px solid #e6a13c; padding:6px 12px;
     border-radius:5px; font-size:11px; line-height:1.45; z-index:1001; text-align:center; }
   #splitter{position:absolute;top:0;bottom:0;left:50%;width:4px;margin-left:-2px;background:#35e0ff;
@@ -53,22 +84,25 @@
   <div class="sub" id="kpi-scn">—</div>
 </div>
 
-<div id="leg" style="display:none">
-  <div><b id="leg-title">ANNUAL ENERGY</b> — study block</div>
-  <div class="bar"></div>
-  <div class="row"><span id="lmin">low</span><span id="lmax">high</span></div>
-  <div style="margin-top:6px;color:#7da">grey = context buildings</div>
-</div>
-
-<div id="ctl">
+<div id="dock">
   <div class="grp"><div class="lbl">COLOUR BY · <span id="metricName">ENERGY</span></div>
     <input id="metricSlider" class="sld" type="range" min="0" max="3" step="1" value="0"></div>
   <div class="grp"><div class="lbl">DEMAND</div><div class="btns" id="demandBtns"></div></div>
   <div class="grp"><div class="lbl">SUPPLY</div><div class="btns" id="supplyBtns"></div></div>
-  <div class="grp"><div class="lbl">LAYERS</div><div class="btns" id="layerBtns"></div></div>
+  <div class="grp"><div class="lbl">LAYERS<span class="info" id="agentsInfo" tabindex="0" role="button"
+      aria-label="what the agent dots mean">i<span class="pop" id="agentsPop">Agent layer not loaded.</span></span></div>
+    <div class="btns" id="layerBtns"></div></div>
   <div class="grp"><div class="lbl">TIME · <span id="hlabel">12:00</span></div>
     <div class="row"><div class="btn" id="playBtn" title="auto day/night">▶</div>
       <input id="hourSlider" class="sld" type="range" min="0" max="23.99" step="0.25" value="12"></div></div>
+  <div class="grp" id="leg" style="display:none">
+    <div class="lbl">LEGEND · <span id="leg-title">ANNUAL ENERGY</span><span class="info right" id="legInfo"
+        tabindex="0" role="button" aria-label="how to read the colour ramp">i<span class="pop">Colour ramp runs low
+        (blue) to high (red) across the 22 study buildings only. Grey massing is PLATEAU context and carries no
+        data.</span></span></div>
+    <div class="bar"></div>
+    <div class="row"><span id="lmin">low</span><span id="lmax">high</span></div>
+  </div>
 </div>
 
 <script>
@@ -138,6 +172,23 @@ const ramp = (t) => {
   t=Math.max(0,Math.min(1,t)); const f=t*3,i=Math.min(2,Math.floor(f)),k=f-i,a=s[i],b=s[i+1];
   return Cesium.Color.fromBytes(a[0]+(b[0]-a[0])*k, a[1]+(b[1]-a[1])*k, a[2]+(b[2]-a[2])*k, 255);
 };
+
+// ---- dock geometry: publish the dock's real height so nothing (including the Cesium
+// credit container, which must stay visible) can ever end up underneath it. -----------
+(function measureDock() {
+  const dock = $('dock'); if (!dock) return;
+  const apply = () => document.documentElement.style.setProperty('--dock-h', dock.offsetHeight + 'px');
+  apply();
+  if (window.ResizeObserver) new ResizeObserver(apply).observe(dock);
+  window.addEventListener('resize', apply);
+})();
+
+// ---- ⓘ popovers: hover on pointer devices, tap-to-toggle on touch --------------------
+document.addEventListener('click', (e) => {
+  const hit = e.target.closest ? e.target.closest('.info') : null;
+  for (const el of document.querySelectorAll('.info.open')) if (el !== hit) el.classList.remove('open');
+  if (hit && !e.target.closest('.pop')) hit.classList.toggle('open');
+});
 
 (async () => {
   try {
@@ -720,10 +771,11 @@ const ramp = (t) => {
     $('playBtn').onclick = () => ((clockDriven ? viewer.clock.shouldAnimate : playTimer) ? stopPlay() : startPlay());
 
     sync(); recolor(); setHour(12); syncPlayBtn();
+    // The agent key is a popover on the LAYERS group, not floating text that can clip.
     if (agentsDs) {
-      const l = document.querySelector('#leg div:last-child');
-      if (l) l.innerHTML = 'grey = context buildings<br>' +
-        `dots = Phase 1 ABM pedestrians (${SCENARIO}) · fill = status, outline = vulnerability`;
+      const p = $('agentsPop');
+      if (p) p.innerHTML = `Dots are Phase 1 ABM pedestrians (${SCENARIO} scenario). ` +
+        'Fill colour = agent status, outline = vulnerability class.';
     }
     window.__READY = true;
 
