@@ -44,6 +44,7 @@
   #leg { margin-left:auto; font-size:11px; }
   #leg .bar{height:8px;width:190px;border-radius:2px;}
   #leg .row{display:flex;justify-content:space-between;width:190px;color:#8fb3c0;font-size:10px}
+  #leg-unit{color:#6f8896;letter-spacing:.04em;text-transform:none;font-weight:400}
   /* ---- ⓘ popover: captions live here, not as floating text ---------------- */
   .info{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;
     width:14px;height:14px;border-radius:50%;border:1px solid rgba(120,190,215,.45);background:transparent;
@@ -96,7 +97,7 @@
     <div class="row"><div class="btn" id="playBtn" title="auto day/night">▶</div>
       <input id="hourSlider" class="sld" type="range" min="0" max="23.99" step="0.25" value="12"></div></div>
   <div class="grp" id="leg" style="display:none">
-    <div class="lbl">LEGEND · <span id="leg-title">ANNUAL ENERGY</span><span class="info right" id="legInfo"
+    <div class="lbl">LEGEND · <span id="leg-title">ENERGY</span><span id="leg-unit"></span><span class="info right" id="legInfo"
         tabindex="0" role="button" aria-label="how to read the colour ramp">i<span class="pop">Colour ramp runs low
         (blue) to high (red) across the 22 study buildings only. Grey massing is PLATEAU context and carries no
         data.</span></span></div>
@@ -154,11 +155,20 @@ window.__MODE = { base: BASE, requested: BASE_REQ, photoreal: PHOTOREAL, split: 
 const PLATEAU_TEXTURED = 'https://assets.cms.plateau.reearth.io/assets/01/8c112f-4957-409a-9b43-d86308c7b74a/' +
   '13102_chuo-ku_pref_2023_citygml_1_op_bldg_3dtiles_13102_chuo-ku_lod2/tileset.json';
 
-const METRICS = { energy:['annual_energy_kwh','BUILDING ENERGY (kWh/yr)'], intensity:['intensity','ENERGY INTENSITY (kWh/m²·yr)'],
-                  cost:['revit_cost_yenM','REVITALISATION COST'], wwr:['wwr','WINDOW RATIO'],
-                  // hour-dependent: value read from scene.occupancy_hourly[id][hour], already
-                  // normalised by the source to % of that building's own daily max.
-                  occupancy:['occupancy','OCCUPANCY (% of daily max)'] };
+// ONE metric vocabulary. The COLOUR BY slider label and the legend title read the same
+// `name` field, so the two can never drift apart (they used to: the slider said COST while
+// the legend said REVITALISATION COST). `unit` is the only extra the legend shows, in its
+// own dim slot — the NAME token itself is byte-identical in both places.
+const METRIC_UI = {
+  energy:    { key:'annual_energy_kwh', name:'ENERGY',    unit:'kWh/yr' },
+  intensity: { key:'intensity',         name:'EUI',       unit:'kWh/m²·yr' },
+  cost:      { key:'revit_cost_yenM',   name:'COST',      unit:'¥M' },
+  wwr:       { key:'wwr',               name:'WWR',       unit:'window ratio' },
+  // hour-dependent: value read from scene.occupancy_hourly[id][hour], already
+  // normalised by the source to % of that building's own daily max.
+  occupancy: { key:'occupancy',         name:'OCCUPANCY', unit:'% of daily max' },
+};
+const METRIC_KEYS = Object.keys(METRIC_UI);
 const RAMP = ['#2b6cff','#13c08a','#ffb347','#ff5436'];
 const state = { metric:'energy', demand:'baseline', supply:'baseline', hour:12 };
 
@@ -659,7 +669,7 @@ document.addEventListener('click', (e) => {
 
     // ---- live recolour + KPI on metric/demand/supply ----
     function recolor() {
-      const [key, title] = METRICS[state.metric];
+      const { key, name, unit } = METRIC_UI[state.metric];
       const isOcc = (state.metric === 'occupancy');
       // occupancy is a fixed 0..100 % scale; every other metric uses the scene range
       const [mn, mx] = isOcc ? [0, 100] : (scene.metric_ranges[key] || [0, 1]);
@@ -678,7 +688,10 @@ document.addEventListener('click', (e) => {
         const t = (mx > mn) ? (v - mn) / (mx - mn) : 0.5;
         entity.polygon.material = ramp(t);
       }
-      $('leg-title').textContent = title + (scenAware ? ` · ${state.demand.toUpperCase()}` : '')
+      // identical token in both places (FINDING-002)
+      $('metricName').textContent = name;
+      $('leg-title').textContent = name;
+      $('leg-unit').textContent = unit + (scenAware ? ` · ${state.demand.toUpperCase()}` : '')
         + (isOcc ? ` · ${String(hr).padStart(2, '0')}:00` : '');
       $('lmin').textContent = Math.round(mn).toLocaleString();
       $('lmax').textContent = Math.round(mx).toLocaleString();
@@ -719,12 +732,11 @@ document.addEventListener('click', (e) => {
     mkBtns($('supplyBtns'), [['baseline','GRID'],['pv_bess','PV+BESS'],['pv_bess_chp','+CHP']],
            () => state.supply, k => state.supply = k);
 
-    // COLOUR BY — slider scrubs the metrics (no clicking)
-    const METRIC_KEYS = ['energy','intensity','cost','wwr','occupancy'];
-    const METRIC_NAME = ['ENERGY','EUI','COST','WWR','OCCUPANCY'];
+    // COLOUR BY — slider scrubs the metrics (no clicking). Both the slider label and the
+    // legend title are written by recolor() from METRIC_UI, so they cannot diverge.
     const mSlider = $('metricSlider');
     mSlider.max = String(METRIC_KEYS.length - 1);
-    mSlider.oninput = () => { const i = +mSlider.value; state.metric = METRIC_KEYS[i]; $('metricName').textContent = METRIC_NAME[i]; recolor(); };
+    mSlider.oninput = () => { state.metric = METRIC_KEYS[+mSlider.value]; recolor(); };
 
     // LAYERS — AGENTS on/off. Turning the agents off also parks the clock, which puts the
     // scene back on the on-demand render path (give-back #2: only live motion pays for it).
