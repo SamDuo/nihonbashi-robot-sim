@@ -41,7 +41,23 @@
     border-radius:3px;background:rgba(8,12,18,.7);color:#9fc4d2;letter-spacing:.05em}
   #dock .btn:hover{color:#fff;border-color:#35e0ff}
   #dock .btn.on{background:#35e0ff;color:#06141a;border-color:#35e0ff;font-weight:700}
-  #dock .sld{width:140px;accent-color:#35e0ff;cursor:pointer;vertical-align:middle}
+  /* ---- ONE slider component (FINDING-004) --------------------------------
+     COLOUR BY and SIM TIME are the same control in two places: identical track,
+     thumb and focus ring, drawn explicitly instead of left to the UA default. */
+  .sld{-webkit-appearance:none;appearance:none;width:150px;height:16px;margin:0;padding:0;
+    background:transparent;cursor:pointer;vertical-align:middle;flex:0 0 auto}
+  .sld::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:rgba(120,190,215,.28)}
+  .sld::-moz-range-track{height:4px;border-radius:2px;background:rgba(120,190,215,.28)}
+  .sld::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:12px;height:12px;
+    margin-top:-4px;border-radius:50%;background:#35e0ff;border:2px solid #06141a;
+    box-shadow:0 0 0 1px #35e0ff}
+  .sld::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:#35e0ff;
+    border:2px solid #06141a;box-shadow:0 0 0 1px #35e0ff}
+  .sld:hover::-webkit-slider-thumb{background:#7cecff}
+  .sld:hover::-moz-range-thumb{background:#7cecff}
+  .sld:focus{outline:none}
+  .sld:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 1px #35e0ff,0 0 0 4px rgba(53,224,255,.35)}
+  .sld:focus-visible::-moz-range-thumb{box-shadow:0 0 0 1px #35e0ff,0 0 0 4px rgba(53,224,255,.35)}
   /* legend = right-most dock section, never a floating panel */
   #leg { margin-left:auto; font-size:11px; }
   #leg .bar{height:8px;width:190px;border-radius:2px;}
