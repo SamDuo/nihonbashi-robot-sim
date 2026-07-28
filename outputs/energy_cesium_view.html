@@ -18,8 +18,10 @@
   #hud { position:fixed; top:8px; left:8px; background:rgba(8,12,18,.82); color:#cfe9f2;
     padding:8px 11px; border-radius:6px; font-size:12px; z-index:1000; min-width:240px; max-width:330px;
     box-sizing:border-box; }
-  #hud .big{font-size:22px;font-weight:700;color:#fff;line-height:1.1}
-  #hud .sub{color:#8fb3c0;font-size:11px;margin-top:3px}
+  #hud .ttl{color:#35e0ff;font-weight:700;font-size:11px;letter-spacing:.06em}
+  #hud .big{font-size:22px;font-weight:700;color:#fff;line-height:1.15;margin-top:2px;
+    display:flex;align-items:center;gap:7px}
+  #hud .sub{color:#8fb3c0;font-size:11px;margin-top:3px;line-height:1.35}
   /* ---- ONE BOTTOM DOCK ---------------------------------------------------
      Controls AND the metric legend live in a single full-width bar pinned to the
      bottom edge. Nothing floats over anything else: the legend is the right-most
@@ -79,8 +81,12 @@
 <div id="notice"></div>
 
 <div id="hud">
-  <div style="color:#35e0ff;font-weight:700;font-size:11px">NIHONBASHI ENERGY TWIN · 日本橋</div>
-  <div class="big" id="kpi-main">—</div>
+  <div class="ttl">NIHONBASHI ENERGY TWIN · 日本橋</div>
+  <div class="big"><span id="kpi-main">—</span><span class="info down" id="kpiInfo" tabindex="0" role="button"
+      aria-label="how this number is derived">i<span class="pop" id="kpiPop">Building load only — EV and bus
+      charging are excluded. Absolute scale comes from the Index_energy EUI column and is UNVERIFIED
+      (Σ EUI×GFA is ~12× the hourly workbooks); treat it as relative until the studio confirms the EUI
+      definition. See project_design.md §6.10.</span></span></div>
   <div class="sub" id="kpi-co2">—</div>
   <div class="sub" id="kpi-scn">—</div>
 </div>
@@ -169,6 +175,10 @@ const METRIC_UI = {
   occupancy: { key:'occupancy',         name:'OCCUPANCY', unit:'% of daily max' },
 };
 const METRIC_KEYS = Object.keys(METRIC_UI);
+// Same vocabulary rule for the scenario switches: the KPI state line names them with the
+// exact tokens printed on the DEMAND / SUPPLY buttons.
+const DEMAND_LABEL = { baseline:'BASE', s1:'S1', s2:'S2' };
+const SUPPLY_LABEL = { baseline:'GRID', pv_bess:'PV+BESS', pv_bess_chp:'+CHP' };
 const RAMP = ['#2b6cff','#13c08a','#ffb347','#ff5436'];
 const state = { metric:'energy', demand:'baseline', supply:'baseline', hour:12 };
 
@@ -704,12 +714,13 @@ document.addEventListener('click', (e) => {
       const co2 = (s.annual_co2_tonnes || 0) * dem;
       const baseCo2 = scene.supply_scenarios.baseline.annual_co2_tonnes;
       const delta = baseCo2 ? (co2 - baseCo2) / baseCo2 * 100 : 0;
+      // Headline number, CO2, and ONE state line. The provenance caveats (building load
+      // only / EUI scale / unverified) live behind the ⓘ next to the headline, not inline.
       $('kpi-main').textContent = Math.round(energyMWh).toLocaleString() + ' MWh/yr';
-      $('kpi-main').title = 'Building load only (EV + bus charging excluded). ' +
-        'Absolute scale from Index_energy EUI and UNVERIFIED — see project_design.md §6.10.';
       $('kpi-co2').textContent = 'CO₂ ' + co2.toFixed(0) + ' t/yr' +
         (s.pv_kw ? ` · ${s.pv_kw}kW PV / ${s.bess_kwh}kWh BESS` : '');
-      $('kpi-scn').innerHTML = `building load only · EUI scale (unverified) · demand: ${d.label} · supply: ${state.supply}` +
+      $('kpi-scn').innerHTML = `demand: ${DEMAND_LABEL[state.demand] || state.demand}` +
+        ` · supply: ${SUPPLY_LABEL[state.supply] || state.supply}` +
         (delta ? ` · <span style="color:#3ddc84">Δ CO₂ ${delta.toFixed(0)}%</span>` : '');
     }
     function mkBtns(host, opts, get, set) {
