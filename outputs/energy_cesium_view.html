@@ -71,11 +71,22 @@
   .lbl .val{color:var(--accent);font-weight:700;font-variant-numeric:tabular-nums}
   #dock .btns{display:flex;gap:var(--sp-half)}
   #dock .row{display:flex;align-items:center;gap:6px}
-  .btn{cursor:pointer;font-size:10px;padding:var(--sp-half) var(--sp);
-    border:1px solid rgba(80,220,255,.25);border-radius:3px;background:rgba(8,12,18,.7);
-    color:#9fc4d2;letter-spacing:.05em}
-  .btn:hover{color:#fff;border-color:var(--accent)}
-  .btn.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
+  /* ---- ONE button component (FINDING-009) --------------------------------
+     BASE/S1/S2, GRID/PV+BESS/+CHP, AGENTS and the ▶ transport control are the same
+     component: identical box, and identical inactive / hover / active / focus-visible
+     states. They are real <button>s, so focus-visible works and the keyboard reaches
+     them. font-weight does NOT change between states — that used to shift the box. */
+  .btn{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;
+    min-height:22px;padding:var(--sp-half) var(--sp);margin:0;cursor:pointer;
+    font:600 10px/1 system-ui,sans-serif;letter-spacing:.05em;text-transform:uppercase;
+    white-space:nowrap;border:1px solid rgba(80,220,255,.25);border-radius:3px;
+    background:rgba(8,12,18,.7);color:#9fc4d2;
+    transition:background .12s ease,color .12s ease,border-color .12s ease}
+  .btn:hover{color:#fff;border-color:var(--accent);background:rgba(53,224,255,.14)}
+  .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .btn.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  .btn.on:hover{background:var(--accent-hi);color:var(--accent-ink)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
   /* ---- ONE slider component (FINDING-004) --------------------------------
      COLOUR BY and SIM TIME are the same control in two places: identical track,
      thumb and focus ring, drawn explicitly instead of left to the UA default. */
@@ -174,7 +185,7 @@
       clock: it drives the agent positions, the occupancy metric and the Cesium sun. It does NOT relight the
       photorealistic base mesh, whose daylight is baked into the tiles — so a night sim time still shows a
       daylit city.</span></span></div>
-    <div class="row"><div class="btn" id="playBtn" title="run the sim clock">▶</div>
+    <div class="row"><button type="button" class="btn" id="playBtn" title="run the sim clock">▶</button>
       <input id="hourSlider" class="sld" type="range" min="0" max="23.99" step="0.25" value="12"></div></div>
   <div class="grp" id="leg" style="display:none">
     <div class="lbl">LEGEND · <span id="leg-title" class="val">ENERGY</span><span id="leg-unit"></span><span class="info right" id="legInfo"
@@ -802,7 +813,8 @@ document.addEventListener('click', (e) => {
     function mkBtns(host, opts, get, set) {
       host.innerHTML = '';
       for (const [k, t] of opts) {
-        const el = document.createElement('div'); el.className = 'btn'; el.textContent = t; el.dataset.k = k;
+        const el = document.createElement('button'); el.type = 'button';
+        el.className = 'btn'; el.textContent = t; el.dataset.k = k;
         el.onclick = () => { set(k); sync(); recolor(); };
         host.appendChild(el);
       }
@@ -829,7 +841,7 @@ document.addEventListener('click', (e) => {
     // scene back on the on-demand render path (give-back #2: only live motion pays for it).
     const layerHost = $('layerBtns');
     if (layerHost) {
-      const ab = document.createElement('div'); ab.className = 'btn'; ab.textContent = 'AGENTS';
+      const ab = document.createElement('button'); ab.type = 'button'; ab.className = 'btn'; ab.textContent = 'AGENTS';
       ab.title = agentsDs ? `Phase 1 ABM · agents_${SCENARIO}.czml · 100 pedestrians`
                           : 'agent layer not loaded (?agents=1 to enable)';
       const paint = () => ab.classList.toggle('on', !!(agentsDs && agentsDs.show));
