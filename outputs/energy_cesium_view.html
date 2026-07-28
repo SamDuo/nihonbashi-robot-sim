@@ -3,35 +3,62 @@
 <head>
 <meta charset="utf-8">
 <title>Nihonbashi Energy Twin — Cesium context view</title>
+<link rel="icon" href="data:,"><!-- the page has no favicon; say so instead of logging a 404 -->
 <link rel="stylesheet"
       href="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Widgets/widgets.css">
 <script src="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Cesium.js"></script>
 <script src="ion_token.js"></script><!-- gitignored; sets window.ION_TOKEN_OVERRIDE -->
 <style>
+  /* ======================================================================
+     ONE SURFACE SYSTEM (FINDING-008)
+     Every panel on this page — KPI card, dock, notice, status chip, popovers and
+     the attribution scrim — is built from these tokens. No panel invents its own
+     background, border, radius, blur or spacing. Spacing is an 8px unit: --sp,
+     --sp2 (16), --sp3 (24), with --sp-half (4) for intra-control gaps.
+     ====================================================================== */
+  :root{
+    --sp: 8px; --sp-half: 4px; --sp2: 16px; --sp3: 24px;
+    --panel-bg: rgba(8,12,18,.86);
+    --panel-border: 1px solid rgba(120,190,215,.16);
+    --panel-radius: 6px;
+    --panel-blur: blur(10px) saturate(1.1);
+    --panel-shadow: 0 6px 22px rgba(0,0,0,.45);
+    --ink: #cfe9f2;
+    --ink-dim: #8fb3c0;
+    --ink-mute: #6f8896;
+    --accent: #35e0ff;
+    --accent-hi: #7cecff;
+    --accent-ink: #06141a;
+    --dock-h: 76px;              /* remeasured at runtime; see measureDock() */
+  }
+  /* the shared dark-glass recipe — applied, never re-invented */
+  .panel{ background:var(--panel-bg); border:var(--panel-border); border-radius:var(--panel-radius);
+    -webkit-backdrop-filter:var(--panel-blur); backdrop-filter:var(--panel-blur);
+    box-shadow:var(--panel-shadow); color:var(--ink); box-sizing:border-box; }
   html, body { margin:0; padding:0; height:100%; overflow:hidden; font-family: system-ui, sans-serif; }
   #cesium { position:absolute; inset:0; }
   /* Top row is a three-slot band: KPI card left, notice centre, status right. The widths
      are capped so the three can never meet, at any viewport >= 1200px. */
-  #status { position:fixed; top:8px; right:8px; max-width:320px; background:rgba(0,0,0,.78);
-    color:#fff; padding:6px 10px; border-radius:6px; font-size:11px; line-height:1.4; z-index:1000; white-space:pre-line; }
+  #status { position:fixed; top:var(--sp); right:var(--sp); max-width:320px;
+    padding:6px 10px; font-size:11px; line-height:1.4; z-index:1000; white-space:pre-line; }
   .ok{background:rgba(40,130,40,.85)!important} .err{background:rgba(180,40,40,.9)!important}
-  #hud { position:fixed; top:8px; left:8px; background:rgba(8,12,18,.82); color:#cfe9f2;
-    padding:8px 11px; border-radius:6px; font-size:12px; z-index:1000; min-width:240px; max-width:330px;
-    box-sizing:border-box; }
-  #hud .ttl{color:#35e0ff;font-weight:700;font-size:11px;letter-spacing:.06em}
+  #hud { position:fixed; top:var(--sp); left:var(--sp); padding:var(--sp) 11px;
+    font-size:12px; z-index:1000; min-width:240px; max-width:330px; }
+  #hud .ttl{color:var(--accent);font-weight:700;font-size:11px;letter-spacing:.06em}
   #hud .big{font-size:22px;font-weight:700;color:#fff;line-height:1.15;margin-top:2px;
     display:flex;align-items:center;gap:7px}
-  #hud .sub{color:#8fb3c0;font-size:11px;margin-top:3px;line-height:1.35}
+  #hud .sub{color:var(--ink-dim);font-size:11px;margin-top:3px;line-height:1.35}
   /* ---- ONE BOTTOM DOCK ---------------------------------------------------
      Controls AND the metric legend live in a single full-width bar pinned to the
      bottom edge. Nothing floats over anything else: the legend is the right-most
      section of the same flex row, and the row wraps below ~1200px instead of
      colliding. --dock-h is measured at runtime (see setDockH) so the Cesium credit
      container can be lifted clear of the bar. */
-  #dock { position:fixed; left:0; right:0; bottom:0; z-index:1000; box-sizing:border-box;
-    display:flex; flex-wrap:wrap; align-items:flex-end; column-gap:22px; row-gap:12px;
-    padding:10px 16px; background:rgba(8,12,18,.86); color:#cfe9f2;
-    border-top:1px solid rgba(120,190,215,.16); }
+  #dock { position:fixed; left:0; right:0; bottom:0; z-index:1000;
+    display:flex; flex-wrap:wrap; align-items:flex-end;
+    column-gap:var(--sp3); row-gap:var(--sp2); padding:10px var(--sp2);
+    /* full-bleed edge-to-edge: same glass, but only the top edge is a border */
+    border:none; border-top:var(--panel-border); border-radius:0; }
   #dock .grp{display:flex;flex-direction:column;gap:5px;min-width:0}
   /* ---- ONE microlabel style (FINDING-005) --------------------------------
      Every all-caps group label — COLOUR BY, DEMAND, SUPPLY, LAYERS, SIM TIME,
@@ -41,13 +68,14 @@
   .lbl{font-size:11px;letter-spacing:.08em;font-weight:600;color:rgba(207,233,242,.62);
     text-transform:uppercase;line-height:1.2;display:flex;align-items:center;gap:5px;
     white-space:nowrap}
-  .lbl .val{color:#35e0ff;font-weight:700;font-variant-numeric:tabular-nums}
-  #dock .btns{display:flex;gap:4px}
+  .lbl .val{color:var(--accent);font-weight:700;font-variant-numeric:tabular-nums}
+  #dock .btns{display:flex;gap:var(--sp-half)}
   #dock .row{display:flex;align-items:center;gap:6px}
-  #dock .btn{cursor:pointer;font-size:10px;padding:4px 8px;border:1px solid rgba(80,220,255,.25);
-    border-radius:3px;background:rgba(8,12,18,.7);color:#9fc4d2;letter-spacing:.05em}
-  #dock .btn:hover{color:#fff;border-color:#35e0ff}
-  #dock .btn.on{background:#35e0ff;color:#06141a;border-color:#35e0ff;font-weight:700}
+  .btn{cursor:pointer;font-size:10px;padding:var(--sp-half) var(--sp);
+    border:1px solid rgba(80,220,255,.25);border-radius:3px;background:rgba(8,12,18,.7);
+    color:#9fc4d2;letter-spacing:.05em}
+  .btn:hover{color:#fff;border-color:var(--accent)}
+  .btn.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
   /* ---- ONE slider component (FINDING-004) --------------------------------
      COLOUR BY and SIM TIME are the same control in two places: identical track,
      thumb and focus ring, drawn explicitly instead of left to the UA default. */
@@ -56,32 +84,31 @@
   .sld::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:rgba(120,190,215,.28)}
   .sld::-moz-range-track{height:4px;border-radius:2px;background:rgba(120,190,215,.28)}
   .sld::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:12px;height:12px;
-    margin-top:-4px;border-radius:50%;background:#35e0ff;border:2px solid #06141a;
-    box-shadow:0 0 0 1px #35e0ff}
-  .sld::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:#35e0ff;
-    border:2px solid #06141a;box-shadow:0 0 0 1px #35e0ff}
-  .sld:hover::-webkit-slider-thumb{background:#7cecff}
-  .sld:hover::-moz-range-thumb{background:#7cecff}
+    margin-top:-4px;border-radius:50%;background:var(--accent);border:2px solid var(--accent-ink);
+    box-shadow:0 0 0 1px var(--accent)}
+  .sld::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:var(--accent);
+    border:2px solid var(--accent-ink);box-shadow:0 0 0 1px var(--accent)}
+  .sld:hover::-webkit-slider-thumb{background:var(--accent-hi)}
+  .sld:hover::-moz-range-thumb{background:var(--accent-hi)}
   .sld:focus{outline:none}
-  .sld:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 1px #35e0ff,0 0 0 4px rgba(53,224,255,.35)}
-  .sld:focus-visible::-moz-range-thumb{box-shadow:0 0 0 1px #35e0ff,0 0 0 4px rgba(53,224,255,.35)}
+  .sld:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 1px var(--accent),0 0 0 4px rgba(53,224,255,.35)}
+  .sld:focus-visible::-moz-range-thumb{box-shadow:0 0 0 1px var(--accent),0 0 0 4px rgba(53,224,255,.35)}
   /* legend = right-most dock section, never a floating panel */
   #leg { margin-left:auto; font-size:11px; }
   #leg .bar{height:8px;width:190px;border-radius:2px;}
-  #leg .row{display:flex;justify-content:space-between;width:190px;color:#8fb3c0;font-size:10px}
-  #leg-unit{color:#6f8896;letter-spacing:.04em;text-transform:none;font-weight:400}
+  #leg .row{display:flex;justify-content:space-between;width:190px;color:var(--ink-dim);font-size:10px}
+  #leg-unit{color:var(--ink-mute);letter-spacing:.04em;text-transform:none;font-weight:400}
   /* ---- ⓘ popover: captions live here, not as floating text ---------------- */
   .info{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;
     width:14px;height:14px;border-radius:50%;border:1px solid rgba(120,190,215,.45);background:transparent;
-    color:#8fb3c0;font:600 9px/1 system-ui,sans-serif;letter-spacing:0;cursor:help;padding:0}
-  .info:hover,.info:focus-visible{background:#35e0ff;color:#06141a;border-color:#35e0ff;outline:none}
-  .info .pop{display:none;position:absolute;z-index:1200;bottom:calc(100% + 8px);left:-8px;
+    color:var(--ink-dim);font:600 9px/1 system-ui,sans-serif;letter-spacing:0;cursor:help;padding:0}
+  .info:hover,.info:focus-visible{background:var(--accent);color:var(--accent-ink);
+    border-color:var(--accent);outline:none}
+  .info .pop{display:none;position:absolute;z-index:1200;bottom:calc(100% + var(--sp));left:calc(0px - var(--sp));
     width:max-content;max-width:270px;white-space:normal;text-align:left;padding:7px 9px;
-    font:400 11px/1.45 system-ui,sans-serif;letter-spacing:0;text-transform:none;color:#cfe9f2;cursor:auto;
-    background:rgba(8,12,18,.94);border:1px solid rgba(120,190,215,.22);border-radius:6px;
-    box-shadow:0 6px 22px rgba(0,0,0,.5)}
-  .info.down .pop{bottom:auto;top:calc(100% + 8px)}
-  .info.right .pop{left:auto;right:-8px}
+    font:400 11px/1.45 system-ui,sans-serif;letter-spacing:0;text-transform:none;cursor:auto}
+  .info.down .pop{bottom:auto;top:calc(100% + var(--sp))}
+  .info.right .pop{left:auto;right:calc(0px - var(--sp))}
   .info:hover .pop,.info:focus .pop,.info:focus-within .pop,.info.open .pop{display:block}
   /* ---- ATTRIBUTION CORNER (FINDING-007) ----------------------------------
      The Cesium / Google / Bing credit container is contractual and stays FULLY
@@ -97,32 +124,36 @@
      upsell node to target, and any selector broad enough to catch it would also
      catch the Google/Bing data credits. Per the finding's own fallback: everything
      stays visible. Do not add a hiding rule here. */
-  .cesium-viewer-bottom{bottom:calc(var(--dock-h, 76px) + 8px)!important;left:8px!important;
-    right:auto!important;width:max-content;max-width:calc(100vw - 16px);
-    z-index:1001;padding:3px 8px;border-radius:5px;background:rgba(8,12,18,.72);
-    -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+  .cesium-viewer-bottom{bottom:calc(var(--dock-h) + var(--sp))!important;left:var(--sp)!important;
+    right:auto!important;width:max-content;max-width:calc(100vw - var(--sp2));
+    z-index:1001;padding:3px var(--sp);
+    /* same surface tokens as .panel, applied by hand because the node is Cesium's */
+    background:var(--panel-bg);border:var(--panel-border);border-radius:var(--panel-radius);
+    -webkit-backdrop-filter:var(--panel-blur);backdrop-filter:var(--panel-blur)}
   .cesium-widget-credits{padding-right:0!important}
   /* the notice lives in the centre slot BETWEEN the KPI card and the status chip: its band is
      bounded by their reserved widths, so it centres itself without ever touching either. */
-  #notice { position:fixed; top:8px; left:354px; right:344px; margin:0 auto; display:none;
-    max-width:600px; box-sizing:border-box;
-    background:rgba(120,74,10,.92); color:#ffe9c4; border:1px solid #e6a13c; padding:6px 12px;
-    border-radius:5px; font-size:11px; line-height:1.45; z-index:1001; text-align:center; }
-  #splitter{position:absolute;top:0;bottom:0;left:50%;width:4px;margin-left:-2px;background:#35e0ff;
-    cursor:col-resize;z-index:900;box-shadow:0 0 8px #35e0ff}
+  #notice { position:fixed; top:var(--sp); left:354px; right:344px; margin:0 auto; display:none;
+    max-width:600px; padding:6px 12px; font-size:11px; line-height:1.45; z-index:1001; text-align:center;
+    /* the one panel that is allowed a hue: it is a warning. Same radius/blur/shadow. */
+    background:rgba(120,74,10,.92); border-color:#e6a13c; color:#ffe9c4; }
+  #splitter{position:absolute;top:0;bottom:0;left:50%;width:4px;margin-left:-2px;
+    cursor:col-resize;z-index:900}
+  #splitter{background:var(--accent);box-shadow:0 0 8px var(--accent)}
   #splitter::after{content:"◀ real ┆ sim ▶";position:absolute;top:10px;left:50%;transform:translateX(-50%);
-    white-space:nowrap;font-size:10px;color:#06141a;background:#35e0ff;padding:2px 6px;border-radius:3px;font-family:system-ui}
+    white-space:nowrap;font-size:10px;color:var(--accent-ink);background:var(--accent);
+    padding:2px 6px;border-radius:3px;font-family:system-ui}
 </style>
 </head>
 <body>
 <div id="cesium"></div>
-<div id="status">Initializing</div>
-<div id="notice"></div>
+<div id="status" class="panel">Initializing</div>
+<div id="notice" class="panel"></div>
 
-<div id="hud">
+<div id="hud" class="panel">
   <div class="ttl">NIHONBASHI ENERGY TWIN · 日本橋</div>
   <div class="big"><span id="kpi-main">—</span><span class="info down" id="kpiInfo" tabindex="0" role="button"
-      aria-label="how this number is derived">i<span class="pop" id="kpiPop">Building load only — EV and bus
+      aria-label="how this number is derived">i<span class="pop panel" id="kpiPop">Building load only — EV and bus
       charging are excluded. Absolute scale comes from the Index_energy EUI column and is UNVERIFIED
       (Σ EUI×GFA is ~12× the hourly workbooks); treat it as relative until the studio confirms the EUI
       definition. See project_design.md §6.10.</span></span></div>
@@ -130,16 +161,16 @@
   <div class="sub" id="kpi-scn">—</div>
 </div>
 
-<div id="dock">
+<div id="dock" class="panel">
   <div class="grp"><div class="lbl">COLOUR BY · <span id="metricName" class="val">ENERGY</span></div>
     <input id="metricSlider" class="sld" type="range" min="0" max="3" step="1" value="0"></div>
   <div class="grp"><div class="lbl">DEMAND</div><div class="btns" id="demandBtns"></div></div>
   <div class="grp"><div class="lbl">SUPPLY</div><div class="btns" id="supplyBtns"></div></div>
   <div class="grp"><div class="lbl">LAYERS<span class="info" id="agentsInfo" tabindex="0" role="button"
-      aria-label="what the agent dots mean">i<span class="pop" id="agentsPop">Agent layer not loaded.</span></span></div>
+      aria-label="what the agent dots mean">i<span class="pop panel" id="agentsPop">Agent layer not loaded.</span></span></div>
     <div class="btns" id="layerBtns"></div></div>
   <div class="grp"><div class="lbl">SIM TIME · <span id="hlabel" class="val">12:00</span><span class="info"
-      id="timeInfo" tabindex="0" role="button" aria-label="what the sim clock drives">i<span class="pop">Simulation
+      id="timeInfo" tabindex="0" role="button" aria-label="what the sim clock drives">i<span class="pop panel">Simulation
       clock: it drives the agent positions, the occupancy metric and the Cesium sun. It does NOT relight the
       photorealistic base mesh, whose daylight is baked into the tiles — so a night sim time still shows a
       daylit city.</span></span></div>
@@ -147,7 +178,7 @@
       <input id="hourSlider" class="sld" type="range" min="0" max="23.99" step="0.25" value="12"></div></div>
   <div class="grp" id="leg" style="display:none">
     <div class="lbl">LEGEND · <span id="leg-title" class="val">ENERGY</span><span id="leg-unit"></span><span class="info right" id="legInfo"
-        tabindex="0" role="button" aria-label="how to read the colour ramp">i<span class="pop">Colour ramp runs low
+        tabindex="0" role="button" aria-label="how to read the colour ramp">i<span class="pop panel">Colour ramp runs low
         (blue) to high (red) across the 22 study buildings only. Grey massing is PLATEAU context and carries no
         data.</span></span></div>
     <div class="bar"></div>
@@ -227,7 +258,9 @@ const state = { metric:'energy', demand:'baseline', supply:'baseline', hour:12 }
 
 const STATUS = document.getElementById('status');
 const $ = id => document.getElementById(id);
-const setStatus = (m, c) => { STATUS.textContent = m; STATUS.className = c || ''; console.log('[energy-cesium]', m); };
+// NB: keep the shared surface class — the ok/err state classes only re-tint the background.
+const setStatus = (m, c) => { STATUS.textContent = m; STATUS.className = 'panel' + (c ? ' ' + c : '');
+  console.log('[energy-cesium]', m); };
 const setNotice = (m) => { const n = $('notice'); if (!n) return;
   n.textContent = m || ''; n.style.display = m ? '' : 'none'; window.__NOTICE = m || null; };
 const ramp = (t) => {
