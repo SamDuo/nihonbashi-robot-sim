@@ -122,8 +122,12 @@
   <div class="grp"><div class="lbl">LAYERS<span class="info" id="agentsInfo" tabindex="0" role="button"
       aria-label="what the agent dots mean">i<span class="pop" id="agentsPop">Agent layer not loaded.</span></span></div>
     <div class="btns" id="layerBtns"></div></div>
-  <div class="grp"><div class="lbl">TIME · <span id="hlabel" class="val">12:00</span></div>
-    <div class="row"><div class="btn" id="playBtn" title="auto day/night">▶</div>
+  <div class="grp"><div class="lbl">SIM TIME · <span id="hlabel" class="val">12:00</span><span class="info"
+      id="timeInfo" tabindex="0" role="button" aria-label="what the sim clock drives">i<span class="pop">Simulation
+      clock: it drives the agent positions, the occupancy metric and the Cesium sun. It does NOT relight the
+      photorealistic base mesh, whose daylight is baked into the tiles — so a night sim time still shows a
+      daylit city.</span></span></div>
+    <div class="row"><div class="btn" id="playBtn" title="run the sim clock">▶</div>
       <input id="hourSlider" class="sld" type="range" min="0" max="23.99" step="0.25" value="12"></div></div>
   <div class="grp" id="leg" style="display:none">
     <div class="lbl">LEGEND · <span id="leg-title" class="val">ENERGY</span><span id="leg-unit"></span><span class="info right" id="legInfo"
