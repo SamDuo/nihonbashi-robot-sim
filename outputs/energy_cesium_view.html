@@ -83,9 +83,25 @@
   .info.down .pop{bottom:auto;top:calc(100% + 8px)}
   .info.right .pop{left:auto;right:-8px}
   .info:hover .pop,.info:focus .pop,.info:focus-within .pop,.info.open .pop{display:block}
-  /* Cesium's credit container is contractual and stays fully visible — it is simply
-     lifted above the dock so our own chrome can never sit on top of it. */
-  .cesium-viewer-bottom{bottom:calc(var(--dock-h, 76px) + 8px)!important;left:8px!important;z-index:1001}
+  /* ---- ATTRIBUTION CORNER (FINDING-007) ----------------------------------
+     The Cesium / Google / Bing credit container is contractual and stays FULLY
+     VISIBLE. Nothing here hides any part of it: no display:none, no opacity, no
+     clip. It is only (a) lifted above the dock so our own chrome can never sit on
+     top of it, and (b) given the same dark-glass scrim as our panels so the logo
+     and the "Data attribution" link stay legible over bright photoreal tiles.
+
+     On the ion "Upgrade for commercial use" upsell: it was probed in every base
+     mode this page can reach (?base=streetscape and ?base=bing; ?base=google
+     degrades to bing without a personal token). In all of them the credit DOM is
+     logoContainer + an EMPTY textContainer + the expand link — there is no separate
+     upsell node to target, and any selector broad enough to catch it would also
+     catch the Google/Bing data credits. Per the finding's own fallback: everything
+     stays visible. Do not add a hiding rule here. */
+  .cesium-viewer-bottom{bottom:calc(var(--dock-h, 76px) + 8px)!important;left:8px!important;
+    right:auto!important;width:max-content;max-width:calc(100vw - 16px);
+    z-index:1001;padding:3px 8px;border-radius:5px;background:rgba(8,12,18,.72);
+    -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+  .cesium-widget-credits{padding-right:0!important}
   /* the notice lives in the centre slot BETWEEN the KPI card and the status chip: its band is
      bounded by their reserved widths, so it centres itself without ever touching either. */
   #notice { position:fixed; top:8px; left:354px; right:344px; margin:0 auto; display:none;
