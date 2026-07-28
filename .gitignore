@@ -109,3 +109,4 @@ data/energy/*.zip
 data/energy/Nihonbashi_District/
 data/energy/pings_in_area_6677.geojson
 *.pptx
+.gstack/

@@ -50,8 +50,8 @@
 </div>
 
 <div class="hud chip" id="bl">
-  <div class="row"><span>BUILDINGS</span><span class="v" id="mEnergy">—</span></div>
-  <div class="row"><span>+ TRANSPORT (EV)</span><span class="v" id="mEV">—</span></div>
+  <div class="row"><span>BUILDINGS (EUI scale*)</span><span class="v" id="mEnergy">—</span></div>
+  <div class="row"><span>EV + BUS CHARGING</span><span class="v" id="mEV">—</span></div>
   <div class="row"><span>ANNUAL CO₂</span><span class="v" id="mCO2">—</span></div>
   <div class="row"><span>LIFECYCLE COST</span><span class="v" id="mCost">—</span></div>
   <div class="row"><span>Δ CO₂ vs BASELINE</span><span class="v" id="mDelta">—</span></div>
@@ -307,8 +307,12 @@ mkBtns($("metricBtns"), [
   {k:"annual_energy_kwh",t:"ENERGY"},{k:"co2",t:"CO₂"},{k:"enduse",t:"END-USE"},{k:"wwr",t:"WWR"},
   {k:"use",t:"USE"},{k:"tier",t:"TIER"},{k:"material",t:"MATERIAL"},{k:"revit_cost_yenM",t:"COST"}],
   ()=>state.metric, k=>state.metric=k);
+// scenario reductions come from the Index_energy EUI sheets now, so labels do too
+const demPct = k => (DEM[k]?.annual_reduction_pct ?? 0);
 mkBtns($("demandBtns"), [
-  {k:"baseline",t:"BASE"},{k:"s1",t:"S1 −5%"},{k:"s2",t:"S2 −15%"}], ()=>state.demand, k=>state.demand=k);
+  {k:"baseline",t:"BASE"},
+  {k:"s1",t:`S1 −${demPct("s1").toFixed(1)}%`},
+  {k:"s2",t:`S2 −${demPct("s2").toFixed(1)}%`}], ()=>state.demand, k=>state.demand=k);
 mkBtns($("supplyBtns"), [
   {k:"baseline",t:"GRID"},{k:"pv_bess",t:"PV+BESS"},{k:"pv_bess_chp",t:"+CHP"}], ()=>state.supply, k=>state.supply=k);
 mkBtns($("viewBtns"), [{k:"data",t:"DATA"},{k:"real",t:"REAL"}], ()=>state.facade?"real":"data", k=>{
