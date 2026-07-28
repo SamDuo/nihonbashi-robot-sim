@@ -1,0 +1,77 @@
+{
+  "pose_file": "outputs/qa/camera_poses.json",
+  "render": {
+    "width": 1920,
+    "height": 1200,
+    "device_scale_factor": 1,
+    "server": "http://localhost:8889 (python scripts/serve_outputs.py) - the views must be served over HTTP, not file://"
+  },
+  "captured": [
+    {
+      "id": "C1",
+      "name": "c1_block_overview",
+      "file": "outputs/figures/c1_block_overview.png",
+      "engine": "cesium",
+      "camera": {
+        "lon": 139.779099,
+        "lat": 35.686998,
+        "height_m": 207.1,
+        "heading_deg": 0,
+        "pitch_deg": -55,
+        "roll_deg": 0
+      },
+      "ui_requested": {
+        "metric": "intensity",
+        "demand": "baseline",
+        "supply": "baseline",
+        "hour": 12,
+        "split": "sim"
+      },
+      "url": "http://localhost:8889/energy_cesium_view.html?vscale=1",
+      "tiles": {
+        "globe": true,
+        "ready": 25,
+        "pending": 0,
+        "processing": 4,
+        "sel": 2,
+        "timedOut": true,
+        "waited_s": 91
+      },
+      "ui_applied": {
+        "metric": "intensity",
+        "demand": "baseline",
+        "supply": "baseline",
+        "hour": 12,
+        "split": "sim",
+        "legend": "ENERGY INTENSITY (kWh/m²·yr)",
+        "legend_min": "185",
+        "legend_max": "995",
+        "kpi": "7,924 MWh/yr",
+        "kpi_scn": "building load only · EUI scale (unverified) · demand: Current demand · supply: baseline"
+      },
+      "diag": {
+        "ready": true,
+        "baseAsset": null,
+        "tilesetReady": 29,
+        "globeTilesLoaded": true,
+        "primitives": 10,
+        "entities": 23,
+        "lighting": true,
+        "status": "Split: LEFT real photoreal · RIGHT energy sim (real context kept) · energy"
+      },
+      "bytes": 2184558,
+      "image": {
+        "width": 1920,
+        "height": 1200,
+        "mean": 102.7,
+        "stddev": 49.8,
+        "unique_colors": 936,
+        "sampled_px": 256000
+      },
+      "errorCount": 1,
+      "errors": [
+        "Failed to load resource: the server responded with a status of 404 (File not found)"
+      ]
+    }
+  ]
+}
