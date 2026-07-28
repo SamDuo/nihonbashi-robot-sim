@@ -32,6 +32,9 @@
   #ctl .btn.on{background:#35e0ff;color:#06141a;border-color:#35e0ff;font-weight:700}
   #ctl .sld{width:140px;accent-color:#35e0ff;cursor:pointer;vertical-align:middle}
   #ctl .row{display:flex;align-items:center;gap:6px}
+  #notice { position:fixed; top:8px; left:50%; transform:translateX(-50%); display:none; max-width:min(720px,86vw);
+    background:rgba(120,74,10,.92); color:#ffe9c4; border:1px solid #e6a13c; padding:6px 12px;
+    border-radius:5px; font-size:11px; line-height:1.45; z-index:1001; text-align:center; }
   #splitter{position:absolute;top:0;bottom:0;left:50%;width:4px;margin-left:-2px;background:#35e0ff;
     cursor:col-resize;z-index:900;box-shadow:0 0 8px #35e0ff}
   #splitter::after{content:"◀ real ┆ sim ▶";position:absolute;top:10px;left:50%;transform:translateX(-50%);
@@ -41,6 +44,7 @@
 <body>
 <div id="cesium"></div>
 <div id="status">Initializing</div>
+<div id="notice"></div>
 
 <div id="hud">
   <div style="color:#35e0ff;font-weight:700;font-size:11px">NIHONBASHI ENERGY TWIN · 日本橋</div>
@@ -53,7 +57,7 @@
   <div><b id="leg-title">ANNUAL ENERGY</b> — study block</div>
   <div class="bar"></div>
   <div class="row"><span id="lmin">low</span><span id="lmax">high</span></div>
-  <div style="margin-top:6px;color:#7da">grey = PLATEAU/Google context</div>
+  <div style="margin-top:6px;color:#7da">grey = context buildings</div>
 </div>
 
 <div id="ctl">
@@ -61,6 +65,7 @@
     <input id="metricSlider" class="sld" type="range" min="0" max="3" step="1" value="0"></div>
   <div class="grp"><div class="lbl">DEMAND</div><div class="btns" id="demandBtns"></div></div>
   <div class="grp"><div class="lbl">SUPPLY</div><div class="btns" id="supplyBtns"></div></div>
+  <div class="grp"><div class="lbl">LAYERS</div><div class="btns" id="layerBtns"></div></div>
   <div class="grp"><div class="lbl">TIME · <span id="hlabel">12:00</span></div>
     <div class="row"><div class="btn" id="playBtn" title="auto day/night">▶</div>
       <input id="hourSlider" class="sld" type="range" min="0" max="23.99" step="0.25" value="12"></div></div>
@@ -69,23 +74,65 @@
 <script>
 const ION_TOKEN = "YOUR_ION_TOKEN_HERE";
 const params = new URLSearchParams(location.search);
-const TILES  = params.get('tiles') || 'plateau';     // plateau | google
 const useGlbContext = params.get('context') === 'glb';   // glb = stylized LOD2 city w/ lit-window night
 const PLATEAU_PUBLIC = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJiODVhMmQ5OS1hOWZjLTQ3YmYtODlmNi1lNWUwY2MwOGUxYTMiLCJpZCI6MTQ5ODk3LCJpYXQiOjE2ODc5MzQ3NDN9.OG0mc3i7ZxGwHQjlMv3TRjiOvKWpzxglxmJRaUIykTY';
 const userToken = params.get('token') || window.ION_TOKEN_OVERRIDE ||
   (ION_TOKEN !== "YOUR_ION_TOKEN_HERE" ? ION_TOKEN : null);
 const token = userToken || PLATEAU_PUBLIC;
+
+// ---------------------------------------------------------------------------
+// BASE MODE — one switch, three modes. Photoreal is the DEFAULT now.
+//
+//   ?base=google       (default) full-screen Google Photorealistic 3D Tiles.
+//                      Needs YOUR Ion token (?token=… or outputs/ion_token.js).
+//                      With no token it FALLS BACK to base=bing, never to the
+//                      bare tan ellipsoid, and says so on screen.
+//   ?base=streetscape  the designed streetscape: warm ground + drawn OSM roads,
+//                      water and kerb trees, PLATEAU LOD2 context. This is the
+//                      QA / headless path (no photoreal streaming required).
+//   ?base=bing         flat Bing Roads imagery under the designed streetscape.
+//   ?split=1           opt-in split screen: LEFT real photoreal · RIGHT energy sim.
+//                      (Was unconditional inside the photoreal branch before.)
+//   ?agents=0          turn the ABM agent layer off (default ON).
+//   ?scenario=…        baseline | reactive | proactive (default proactive).
+// ---------------------------------------------------------------------------
+const BASE_REQ = params.get('base') || 'google';
+// Photoreal without a personal token is not possible; degrade instead of showing tan.
+let BASE = BASE_REQ, BASE_NOTICE = '';
+if (BASE === 'google' && !userToken) {
+  BASE = 'bing';
+  BASE_NOTICE = 'Photoreal base unavailable (no viewer token) — showing imagery base. ' +
+                'Add ?token=… or create outputs/ion_token.js to restore the photoreal default.';
+}
+const PHOTOREAL = (BASE === 'google');          // full-screen photoreal mode
+// On-screen UI never names the tile provider. The Cesium credit display (Google logo / data
+// attribution) is a separate, contractually required element and is left completely alone.
+const MODE_LABEL = PHOTOREAL ? 'photoreal' : (BASE === 'bing' ? 'imagery base' : 'streetscape');
+const SPLIT     = params.get('split') === '1';  // opt-in real|sim splitter
+const TILES  = params.get('tiles') || (PHOTOREAL ? 'google' : 'plateau');   // plateau | google
+// ---- animated layers: the clock has to run for these (see the requestRenderMode note) ----
+const AGENTS_ON = (params.get('agents') || '1') !== '0';
+const SCENARIO  = params.get('scenario') || 'proactive';   // agents_<scenario>.czml
+const AGENTZ    = parseFloat(params.get('agentz') || '0'); // metres of height offset, fallback knob
+const ANIMATED  = AGENTS_ON;                    // + traffic layer when that lands
+window.__MODE = { base: BASE, requested: BASE_REQ, photoreal: PHOTOREAL, split: SPLIT,
+                  tiles: TILES, agents: AGENTS_ON, scenario: SCENARIO, animated: ANIMATED };
 const PLATEAU_TEXTURED = 'https://assets.cms.plateau.reearth.io/assets/01/8c112f-4957-409a-9b43-d86308c7b74a/' +
   '13102_chuo-ku_pref_2023_citygml_1_op_bldg_3dtiles_13102_chuo-ku_lod2/tileset.json';
 
-const METRICS = { energy:['annual_energy_kwh','ANNUAL ENERGY'], intensity:['intensity','ENERGY INTENSITY'],
-                  cost:['revit_cost_yenM','REVITALISATION COST'], wwr:['wwr','WINDOW RATIO'] };
+const METRICS = { energy:['annual_energy_kwh','BUILDING ENERGY (kWh/yr)'], intensity:['intensity','ENERGY INTENSITY (kWh/m²·yr)'],
+                  cost:['revit_cost_yenM','REVITALISATION COST'], wwr:['wwr','WINDOW RATIO'],
+                  // hour-dependent: value read from scene.occupancy_hourly[id][hour], already
+                  // normalised by the source to % of that building's own daily max.
+                  occupancy:['occupancy','OCCUPANCY (% of daily max)'] };
 const RAMP = ['#2b6cff','#13c08a','#ffb347','#ff5436'];
 const state = { metric:'energy', demand:'baseline', supply:'baseline', hour:12 };
 
 const STATUS = document.getElementById('status');
 const $ = id => document.getElementById(id);
 const setStatus = (m, c) => { STATUS.textContent = m; STATUS.className = c || ''; console.log('[energy-cesium]', m); };
+const setNotice = (m) => { const n = $('notice'); if (!n) return;
+  n.textContent = m || ''; n.style.display = m ? '' : 'none'; window.__NOTICE = m || null; };
 const ramp = (t) => {
   const s=[[43,108,255],[19,192,138],[255,179,71],[255,84,54]];
   t=Math.max(0,Math.min(1,t)); const f=t*3,i=Math.min(2,Math.floor(f)),k=f-i,a=s[i],b=s[i+1];
@@ -95,7 +142,8 @@ const ramp = (t) => {
 (async () => {
   try {
     Cesium.Ion.defaultAccessToken = token;
-    if (TILES === 'google' && !userToken) setStatus('Google tiles need YOUR ion token. Falling back to PLATEAU.', 'err');
+    if (BASE_NOTICE) setNotice(BASE_NOTICE);
+    else if (TILES === 'google' && !userToken) setNotice('Photoreal tiles need your own viewer token — showing the context tileset instead.');
 
     setStatus('Loading energy scene');
     const scene = await fetch('/energy/energy_scene.json').then(r => r.json());
@@ -123,68 +171,149 @@ const ramp = (t) => {
     // DOWN onto height 0 (groundTileset below). Then the designed streets, the photoreal, and the
     // coloured buildings all share one ground plane — no float, no sink.
     const terrainProvider = new Cesium.EllipsoidTerrainProvider();
-    // DEFAULT: a DESIGNED streetscape (no Bing) — clean warm ground + drawn roads/water/trees,
-    // which reads like an architectural model. ?base=bing keeps the flat Bing Roads map instead.
+    // base imagery. ?base=bing (and the no-token fallback from base=google) puts the flat
+    // Bing Roads map under everything. base=streetscape draws the designed ground instead.
+    // base=google needs no imagery at all — the photoreal mesh IS the ground.
     let baseLayer = false;
-    if (params.get('base') === 'bing') {
+    if (BASE === 'bing') {
       try { baseLayer = new Cesium.ImageryLayer(await Cesium.IonImageryProvider.fromAssetId(4)); window.__BASE_ASSET = 4; }
-      catch (e) { console.warn('bing base failed', e); }
+      catch (e) {
+        // Bing asset 4 can 403 under the public PLATEAU token (see commits fc57737 / 91b271b).
+        // Hard fallback is a NEUTRAL GREY-BLUE globe + notice. Never the tan base.
+        console.warn('bing base failed', e); window.__BASE_ASSET = null;
+        setNotice((BASE_NOTICE ? BASE_NOTICE + ' ' : '') + 'Imagery base refused by the public token — showing a neutral globe.');
+      }
     }
+    // Ground colour of the bare globe. Tan is the DESIGNED streetscape ground and is only ever
+    // used in that mode; every other mode uses a neutral grey-blue so a missing tile never
+    // reads as brown cardboard.
+    const GROUND_DAY = (BASE === 'streetscape') ? [0.81, 0.79, 0.73] : [0.42, 0.48, 0.55];
+    const GROUND_NIGHT = (BASE === 'streetscape') ? [0.06, 0.07, 0.12] : [0.05, 0.07, 0.10];
 
     const viewer = new Cesium.Viewer('cesium', {
       baseLayer, terrainProvider, baseLayerPicker:false, geocoder:false, homeButton:false,
       sceneModePicker:false, navigationHelpButton:false, timeline:false, animation:false,
       fullscreenButton:false, infoBox:true, selectionIndicator:true,
-      requestRenderMode:true, maximumRenderTimeChange:Infinity, useBrowserRecommendedResolution:true,
+      // Time-dynamic CZML renders as a FROZEN FRAME under requestRenderMode, so the on-demand
+      // path is only used when no animated layer is on (give-back #2 in the design doc).
+      requestRenderMode:!ANIMATED, maximumRenderTimeChange:(ANIMATED ? 0.5 : Infinity),
+      useBrowserRecommendedResolution:true,
     });
     // ---- performance: static scene -> on-demand render + strip costly features ----
     const sc = viewer.scene; window.__viewer = viewer;
-    sc.requestRenderMode = true; sc.maximumRenderTimeChange = Infinity;
+    // the constructor options above are NOT enough — Viewer re-asserts these on the scene.
+    sc.requestRenderMode = !ANIMATED; sc.maximumRenderTimeChange = ANIMATED ? 0.5 : Infinity;
     sc.fog.enabled = false; sc.shadowMap.enabled = false; viewer.shadows = false;
     sc.globe.enableLighting = true;           // sun lighting drives DAY/NIGHT (shadows stay OFF for FPS)
     sc.skyAtmosphere.show = true;             // sky tints with the sun for dusk/night realism
-    sc.globe.baseColor = Cesium.Color.fromCssColorString('#cfc9ba');  // designed warm ground (no Bing)
+    sc.globe.baseColor = new Cesium.Color(GROUND_DAY[0], GROUND_DAY[1], GROUND_DAY[2], 1);
     sc.globe.showGroundAtmosphere = false;
     sc.globe.maximumScreenSpaceError = 2; sc.globe.tileCacheSize = 80;
     sc.msaaSamples = 1; sc.postProcessStages.fxaa.enabled = false; sc.highDynamicRange = false;
     const cc = sc.screenSpaceCameraController;
-    cc.minimumZoomDistance = 90; cc.maximumZoomDistance = 900; cc.enableCollisionDetection = true;
+    // Camera floor. 90 m physically prevents reading the agents in the street, which is the
+    // whole point of the moving layers, so the photoreal default drops to 25 m (?minzoom= to tune).
+    // CAVEAT (accepted): enableCollisionDetection tests against the GLOBE surface (the flat
+    // ellipsoid at h=0), never against 3D Tiles, and the photoreal mesh is translated DOWN by
+    // ?phz. At a 25 m floor the camera WILL pass through photoreal buildings during free
+    // navigation. That is a navigation artefact, not a rendering bug; curated poses are authored
+    // in open street space. If it distracts in review, raise the floor to ~40 m (?minzoom=40).
+    cc.minimumZoomDistance = parseFloat(params.get('minzoom') || (PHOTOREAL ? '25' : '90'));
+    cc.maximumZoomDistance = parseFloat(params.get('maxzoom') || '900');
+    cc.enableCollisionDetection = true;
     const requestRender = () => sc.requestRender();
+
+    // ---- sun ----------------------------------------------------------------
+    // The sun direction is computed from a Tokyo LOCAL wall-clock hour and pushed into
+    // scene.light, instead of being left to follow viewer.clock. Reason: once the agent
+    // CZML drives the clock, viewer.clock runs on the CZML axis, whose timestamps are Tokyo
+    // local times serialised with a "Z" suffix by the ABM exporter (epoch 2026-05-25T00:00:00Z
+    // is 00:00 JST in the sim). Read as UTC that is 9 h out, which would light the morning
+    // commute like an evening. Driving the light ourselves keeps day/night identical in both
+    // the animated and the static path. Falls back silently to Cesium's own SunLight.
+    let sunLight = null;
+    try {
+      sunLight = new Cesium.DirectionalLight({
+        direction: new Cesium.Cartesian3(0, 0, -1), intensity: 2.0 });
+      sc.light = sunLight;
+    } catch (e) { console.warn('directional sun light unavailable, using default SunLight', e); sunLight = null; }
+    const TOKYO_MIDNIGHT = '2026-05-25T00:00:00+09:00';
+    function setSun(h) {
+      if (!sunLight) return;
+      try {
+        const t = Cesium.JulianDate.addSeconds(Cesium.JulianDate.fromIso8601(TOKYO_MIDNIGHT),
+                                               h * 3600, new Cesium.JulianDate());
+        const icrf = Cesium.Transforms.computeIcrfToFixedMatrix(t) ||
+                     Cesium.Transforms.computeTemeToPseudoFixedMatrix(t);
+        const sun = Cesium.Simon1994PlanetaryPositions.computeSunPositionInEarthInertialFrame(t);
+        const fixed = Cesium.Matrix3.multiplyByVector(icrf, sun, new Cesium.Cartesian3());
+        // DirectionalLight.direction is the direction light TRAVELS: from the sun toward Earth.
+        Cesium.Cartesian3.normalize(Cesium.Cartesian3.negate(fixed, fixed), sunLight.direction);
+        window.__SUNDIR = [sunLight.direction.x, sunLight.direction.y, sunLight.direction.z];
+      } catch (e) { console.warn('sun direction failed', e); sunLight = null; }
+    }
+    // Opening pose. The photoreal default pulls back and flattens the pitch so the study block
+    // lands mid-frame WITH sky above it — the widened clip volume is only worth anything if the
+    // opening frame actually shows the horizon. Streetscape/bing keep the original pose, so the
+    // QA smoke path is pixel-comparable with previous runs.
     viewer.camera.setView({
-      destination: Cesium.Cartesian3.fromDegrees(cLng, cLat - 0.0016, 380),
-      orientation: { heading: Cesium.Math.toRadians(10), pitch: Cesium.Math.toRadians(-42), roll: 0 },
+      destination: Cesium.Cartesian3.fromDegrees(cLng, cLat - (PHOTOREAL ? 0.0048 : 0.0016), PHOTOREAL ? 420 : 380),
+      orientation: { heading: Cesium.Math.toRadians(10),
+                     pitch: Cesium.Math.toRadians(PHOTOREAL ? -38 : -42), roll: 0 },
     });
     // ---- time of day: move the sun → day↔night shading; driven by the auto-play slider ----
     let streetLights = null, windowShader = null;
-    function setHour(h) {
-      viewer.clock.currentTime = Cesium.JulianDate.addSeconds(
-        Cesium.JulianDate.fromIso8601('2026-05-25T00:00:00+09:00'), h * 3600, new Cesium.JulianDate());  // Tokyo local
+    let czmlEpoch = null;      // set when the agent CZML is adopted; sim hour 0 lives here
+    let clockDriven = false;   // true once the CZML clock owns viewer.clock
+    function setHour(h, fromClock) {
+      // Two clock regimes:
+      //  · static  — viewer.clock is only a sun carrier, so it holds Tokyo local wall time.
+      //  · animated — the CZML owns viewer.clock; sim hour h == czmlEpoch + h*3600 (the CZML
+      //    timestamps are the sim's own local hours). Scrubbing the slider scrubs the agents.
+      if (!fromClock) {
+        viewer.clock.currentTime = clockDriven && czmlEpoch
+          ? Cesium.JulianDate.addSeconds(czmlEpoch, h * 3600, new Cesium.JulianDate())
+          : Cesium.JulianDate.addSeconds(Cesium.JulianDate.fromIso8601('2026-05-25T00:00:00+09:00'),
+                                         h * 3600, new Cesium.JulianDate());  // Tokyo local
+      }
+      setSun(h);
       state.hour = h;
       const hh = Math.floor(h), mm = Math.round((h - hh) * 60) % 60;
       const lbl = $('hlabel'); if (lbl) lbl.textContent = String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
       const hs = $('hourSlider'); if (hs) hs.value = h;
       // manual day↔night tint of the designed ground (flat primitives ignore sun lighting)
       const nf = (h < 5 || h >= 20) ? 1 : h < 7 ? (7 - h) / 2 : h >= 18 ? (h - 18) / 2 : 0;
-      const lp = (a, b) => a + (b - a) * nf;
-      sc.globe.baseColor = new Cesium.Color(lp(0.81, 0.06), lp(0.79, 0.07), lp(0.73, 0.12), 1);
+      const lp = (i) => GROUND_DAY[i] + (GROUND_NIGHT[i] - GROUND_DAY[i]) * nf;
+      sc.globe.baseColor = new Cesium.Color(lp(0), lp(1), lp(2), 1);
       if (streetLights) streetLights.show = nf > 0.25;            // street lamps at night
       if (windowShader) windowShader.setUniform('u_night', nf);   // lit windows on the glb context
+      // the occupancy layer is hour-dependent, so scrubbing time must recolour it
+      if (state.metric === 'occupancy' && typeof recolor === 'function') recolor();
       requestRender();
     }
 
-    // ---- split: LEFT = full photoreal real city · RIGHT = same photoreal with ONLY the study
-    //      block clipped out, so the coloured energy buildings show in the gap while the REAL
-    //      buildings around them stay visible on the sim side too. Designed streets are drawn
-    //      underneath (PLATEAU LOD2 has no ground mesh) so the gap reads as real streetscape.
-    setStatus(TILES === 'google' && userToken ? 'Loading Google Photorealistic tiles' : 'Loading PLATEAU context');
+    // ---- photoreal context. DEFAULT is full screen (base=google): one tileset, the study
+    //      block clipped out of it so the coloured energy buildings stand in the real city.
+    //      ?split=1 restores the old two-tileset splitter: LEFT = real photoreal ·
+    //      RIGHT = same photoreal with only the study block clipped, so the sim side keeps
+    //      its real neighbours. Designed streets are drawn underneath in streetscape/bing mode
+    //      (PLATEAU LOD2 has no ground mesh) so the gap reads as real streetscape.
+    setStatus('Loading context tiles');
     const isGoogle = (TILES === 'google' && userToken);
+    // Screen-space error is the FPS/detail dial and it is now the FIRST give-back if the
+    // combination of a wide clip volume, a running clock and a 25 m camera floor is too slow
+    // on real hardware (ranked give-back #1 in the design doc: cheapest visual cost, largest
+    // FPS return, and the sky horizon survives it). Raise with ?sse=30 before touching anything else.
+    const SSE = parseFloat(params.get('sse') || (isGoogle ? '22' : '28'));
     function tunePhotoreal(t) {
-      t.maximumScreenSpaceError = isGoogle ? 22 : 28;
+      t.maximumScreenSpaceError = SSE;
       t.cacheBytes = 1073741824; t.maximumCacheOverflowBytes = 536870912;   // 1.123 names
       t.foveatedScreenSpaceError = true; t.foveatedConeSize = 0.20;
       t.preloadWhenHidden = false; t.preloadFlightDestinations = false;
       t.cullWithChildrenBounds = true;
       t.cullRequestsWhileMoving = true; t.cullRequestsWhileMovingMultiplier = 60;
+      // Give-back #3: with the frame clip gone, distance culling is dynamicScreenSpaceError's
+      // job. It DEGRADES far tiles instead of deleting them, which is what keeps the horizon.
       if (isGoogle) { t.dynamicScreenSpaceError = true; t.dynamicScreenSpaceErrorDensity = 0.00278; t.dynamicScreenSpaceErrorFactor = 4.0; }
     }
     if (useGlbContext) {
@@ -222,30 +351,51 @@ const ramp = (t) => {
           customShader: windowShader, backFaceCulling: false });
         sc.primitives.add(model); window.__tileset = model; window.__tilesLoaded = true;
         requestRender();
-        setStatus('Stylized LOD2 context · lit-window night (?context=photo = photoreal) · ' + state.metric, 'ok');
+        setStatus('energy twin · stylized context · ' + state.metric, 'ok');
       } catch (e) { setStatus('glb context failed: ' + (e.message||e), 'err'); console.warn(e); }
     } else {
     try {
+      // NOTE: the Google credit that createGooglePhotorealistic3DTileset registers with the
+      // viewer's credit display (bottom-left) must stay visible — Google terms. Nothing in this
+      // page's CSS hides .cesium-widget-credits; keep it that way.
+      // BUGFIX: in CesiumJS 1.123 the signature is (key, options). Passing the options object
+      // as the first argument made it a Google Maps API *key*, so every request went to
+      // tile.googleapis.com/v1/3dtiles/root.json?key=[object%20Object] and returned HTTP 400 —
+      // i.e. the photoreal base could never load, token or no token. Passing undefined as the
+      // key takes the Cesium Ion route (asset 2275207) with the Ion token this page already sets.
       const mk = () => isGoogle
-        ? Cesium.createGooglePhotorealistic3DTileset({ maximumScreenSpaceError: 20 })
-        : Cesium.Cesium3DTileset.fromUrl(PLATEAU_TEXTURED, { maximumScreenSpaceError: 24 });
-      // ---- clip BOTH tilesets to a tight boundary around the study block → far fewer
-      //      photoreal tiles to draw = better FPS. ?vb=0.005 widens it, ?vb=0.0025 tightens.
-      const VB = parseFloat(params.get('vb') || '0.0035');     // ~330 m half-box
-      const FAR = 0.02;
+        ? Cesium.createGooglePhotorealistic3DTileset(undefined, { maximumScreenSpaceError: SSE })
+        : Cesium.Cesium3DTileset.fromUrl(PLATEAU_TEXTURED, { maximumScreenSpaceError: SSE });
+      // ---- clip volume -----------------------------------------------------------------
+      // The tan horizon was NEVER the base layer: these four `frame` strips deleted every
+      // photoreal tile outside a ~330 m half-box, leaving bare ellipsoid — a tan band —
+      // everywhere past it. They bought FPS and cost the horizon.
+      //   photoreal default : frame OFF, only the 22 study footprints are clipped, so the
+      //                       real city runs out to the tileset's own extent and the horizon
+      //                       is sky. ?frame=1 restores the strips.
+      //   streetscape/bing  : frame ON at the old ~330 m radius, so the QA/headless path keeps
+      //                       exactly the FPS profile it had before this change.
+      // Give-back #4 (LAST RESORT if FPS is unusable on real hardware): ?frame=1 narrows the
+      // volume again — but that is what brings the tan band back, so if it is taken, raise the
+      // camera floor in the same pass (?minzoom=90) rather than flying low against a clip edge.
+      const FRAME_ON = params.get('frame') != null ? params.get('frame') === '1' : !PHOTOREAL;
+      const VB = parseFloat(params.get('vb') || (PHOTOREAL ? '0.02' : '0.0035'));  // ~1.8 km : ~330 m half-box
+      const FAR = Math.max(0.02, VB * 3);
       const mkPoly = (f) => new Cesium.ClippingPolygon({ positions: Cesium.Cartesian3.fromDegreesArray(f) });
-      const vbox = [cLng-VB,cLat-VB, cLng+VB,cLat-VB, cLng+VB,cLat+VB, cLng-VB,cLat+VB];
-      const frame = [                                          // 4 strips covering everything OUTSIDE the box
+      const frame = !FRAME_ON ? [] : [               // 4 strips covering everything OUTSIDE the box
         [cLng-FAR,cLat-FAR, cLng-VB,cLat-FAR, cLng-VB,cLat+FAR, cLng-FAR,cLat+FAR],
         [cLng+VB,cLat-FAR, cLng+FAR,cLat-FAR, cLng+FAR,cLat+FAR, cLng+VB,cLat+FAR],
         [cLng-VB,cLat+VB, cLng+VB,cLat+VB, cLng+VB,cLat+FAR, cLng-VB,cLat+FAR],
         [cLng-VB,cLat-FAR, cLng+VB,cLat-FAR, cLng+VB,cLat-VB, cLng-VB,cLat-VB] ];
       const tilesetL = await mk(); tunePhotoreal(tilesetL);
-      tilesetL.splitDirection = Cesium.SplitDirection.LEFT; sc.primitives.add(tilesetL);
+      if (SPLIT) tilesetL.splitDirection = Cesium.SplitDirection.LEFT;
+      sc.primitives.add(tilesetL);
       window.__tileset = tilesetL;
       tilesetL.allTilesLoaded.addEventListener(() => { window.__tilesLoaded = true; requestRender(); });
-      const tilesetR = await mk(); tunePhotoreal(tilesetR);
-      tilesetR.splitDirection = Cesium.SplitDirection.RIGHT;
+      // second tileset ONLY for the opt-in split; full-screen mode draws one, which is also
+      // half the tile traffic the old unconditional split paid for.
+      const tilesetR = SPLIT ? await mk() : null;
+      if (tilesetR) { tunePhotoreal(tilesetR); tilesetR.splitDirection = Cesium.SplitDirection.RIGHT; }
       // shift the photoreal DOWN onto the flat globe (height 0) so it shares the ground plane
       // with the designed streets and the clamped coloured buildings. ?phz tunes the offset.
       const PHZ = parseFloat(params.get('phz') || '38');
@@ -254,7 +404,7 @@ const ramp = (t) => {
         const down = Cesium.Cartesian3.fromDegrees(cLng, cLat, -PHZ);
         t.modelMatrix = Cesium.Matrix4.fromTranslation(Cesium.Cartesian3.subtract(down, surf, new Cesium.Cartesian3()));
       };
-      groundTileset(tilesetL); groundTileset(tilesetR);
+      groundTileset(tilesetL); if (tilesetR) groundTileset(tilesetR);
       if (Cesium.ClippingPolygonCollection) {
         // each study footprint, expanded outward ~5 m so it fully swallows the REAL building
         // (whose PLATEAU footprint is slightly offset from the geojson one).
@@ -271,32 +421,39 @@ const ramp = (t) => {
           return out;
         };
         const studyFlat = studyPolys.filter(s => s.flat.length >= 6).map(s => expand(s.flat));
-        // clip the study block out of BOTH sides so the coloured model never overlaps the real
-        // photoreal buildings; the frame strips also bound photoreal to the FPS box. Real context
-        // buildings still surround the block on both sides.
+        // clip the study block out of EVERY tileset so the coloured model never overlaps the
+        // real photoreal buildings. The frame strips (when on) additionally bound photoreal to
+        // the FPS box. Real context buildings still surround the block.
         const mkClip = () => new Cesium.ClippingPolygonCollection({ inverse: false, polygons: [
           ...studyFlat.map(f => new Cesium.ClippingPolygon({ positions: Cesium.Cartesian3.fromDegreesArray(f) })),
           ...frame.map(mkPoly) ] });
         tilesetL.clippingPolygons = mkClip();
-        tilesetR.clippingPolygons = mkClip();
+        if (tilesetR) tilesetR.clippingPolygons = mkClip();
       }
-      sc.primitives.add(tilesetR);
-      sc.splitPosition = 0.5;
-      const splitter = document.createElement('div'); splitter.id = 'splitter'; document.body.appendChild(splitter);
-      const setSplit = (p) => { p = Math.max(0.05, Math.min(0.95, p)); sc.splitPosition = p; splitter.style.left = (p*100)+'%'; requestRender(); };
-      setSplit(0.5);
-      let dragging = false;
-      splitter.addEventListener('mousedown', () => { dragging = true; cc.enableInputs = false; });
-      window.addEventListener('mouseup', () => { if (dragging) { dragging = false; cc.enableInputs = true; } });
-      window.addEventListener('mousemove', (e) => { if (dragging) setSplit(e.clientX / sc.canvas.clientWidth); });
+      if (tilesetR) {
+        sc.primitives.add(tilesetR);
+        sc.splitPosition = 0.5;
+        const splitter = document.createElement('div'); splitter.id = 'splitter'; document.body.appendChild(splitter);
+        const setSplit = (p) => { p = Math.max(0.05, Math.min(0.95, p)); sc.splitPosition = p; splitter.style.left = (p*100)+'%'; requestRender(); };
+        setSplit(0.5);
+        let dragging = false;
+        splitter.addEventListener('mousedown', () => { dragging = true; cc.enableInputs = false; });
+        window.addEventListener('mouseup', () => { if (dragging) { dragging = false; cc.enableInputs = true; } });
+        window.addEventListener('mousemove', (e) => { if (dragging) setSplit(e.clientX / sc.canvas.clientWidth); });
+      }
       requestRender();
-      setStatus('Split: LEFT real photoreal · RIGHT energy sim (real context kept) · ' + state.metric, 'ok');
+      // resting label names the MODE, never the tile provider (the credit display does that,
+      // and only the credit display is allowed to).
+      setStatus('energy twin · ' + (tilesetR ? 'split real | sim · ' : '') + MODE_LABEL
+                + ' · ' + state.metric, 'ok');
     } catch (e) { setStatus('Context tiles failed: ' + (e.message||e), 'err'); console.warn(e); }
     }   // end else (photoreal context)
 
-    // ---- DESIGNED streetscape: OSM roads + water + kerb trees draped on the globe (replaces
-    //      Bing). scripts/export_streetscape.py → /energy/streetscape.json ----
-    try {
+    // ---- DESIGNED streetscape: OSM roads + water + kerb trees draped on the globe.
+    //      scripts/export_streetscape.py → /energy/streetscape.json.
+    //      Skipped under base=google: the photoreal mesh IS the ground there, and drawing the
+    //      designed roads at h=0 underneath it only buys z-fighting. ----
+    if (BASE !== 'google') try {
       const ss = await fetch('/energy/streetscape.json').then(r => r.json());
       const tierColor = { major:'#3f4047', mid:'#4a4b52', minor:'#585962', path:'#9a937f' };
       const tierInst = { major:[], mid:[], minor:[], path:[] };
@@ -363,19 +520,115 @@ const ramp = (t) => {
       positions: Cesium.Cartesian3.fromDegreesArray(bbFlat.concat([bb[0][0], bb[0][1]])),
       width: 2, material: Cesium.Color.fromCssColorString('#35e0ff').withAlpha(0.6), clampToGround: true } });
 
+    // ---- ABM AGENTS — real Phase 1 simulation output, loaded UNCHANGED --------------------
+    // outputs/timeseries/agents_<scenario>.czml is 1 document packet + 100 pedestrian point
+    // entities (agent-a000 … agent-a099). There is no robot entity in the file, so nothing here
+    // tries to style one. Positions carry ABSOLUTE height 2.0 m and are left that way:
+    // clampToGround / HeightReference would sample the GLOBE, which Cesium computes without the
+    // tileset modelMatrix, and would float every agent ~38 m (?phz) above the visible street.
+    // The photoreal mesh is already shifted down onto h = 0, so absolute 2 m IS street level.
+    // ?agentz=<metres> is the fallback if they still read high or low on real hardware.
+    let agentsDs = null;
+    if (AGENTS_ON) {
+      try {
+        // TIME BASE. The ABM exporter writes Tokyo local timestamps with a "Z" suffix (the CZML
+        // day starts 2026-05-25T00:00:00Z and agents leave home at t+28800 s = 08:00, which is
+        // 08:00 JST, not 08:00 UTC). Taken literally that axis is 9 h off, and once it drives
+        // viewer.clock, Cesium's sun and sky follow it: "noon" would render a night sky over a
+        // daylight city. So the packet TIMESTAMPS are re-based by -9 h at load (?tz=0 to disable,
+        // ?tz=<hours> for another zone). Sample values, trajectories, colours and heights are
+        // untouched — only epoch / availability / interval strings move, which is exactly the
+        // naive-local-to-UTC correction the exporter should be doing itself.
+        const TZ_H = parseFloat(params.get('tz') ?? '9');
+        const shiftIso = (s) => Cesium.JulianDate.toIso8601(
+          Cesium.JulianDate.addHours(Cesium.JulianDate.fromIso8601(s), -TZ_H, new Cesium.JulianDate()));
+        const shiftRange = (s) => String(s).split('/').map(shiftIso).join('/');
+        const TIME_KEYS = { epoch: shiftIso, currentTime: shiftIso, startTime: shiftIso, stopTime: shiftIso,
+                            interval: shiftRange, availability: shiftRange };
+        const retime = (node) => {
+          if (Array.isArray(node)) { node.forEach(retime); return; }
+          if (!node || typeof node !== 'object') return;
+          for (const k of Object.keys(node)) {
+            const v = node[k];
+            if (TIME_KEYS[k] && typeof v === 'string') { try { node[k] = TIME_KEYS[k](v); } catch (_) {} }
+            else if (TIME_KEYS[k] && Array.isArray(v) && v.every(x => typeof x === 'string')) {
+              try { node[k] = v.map(TIME_KEYS[k]); } catch (_) {}   // availability may be a list
+            } else retime(v);
+          }
+        };
+        const packets = await fetch(`/timeseries/agents_${SCENARIO}.czml`).then(r => r.json());
+        if (TZ_H) retime(packets);
+        const ds = await Cesium.CzmlDataSource.load(packets);
+        await viewer.dataSources.add(ds);
+        agentsDs = ds; window.__agents = ds;
+        // Adopt the CZML's OWN clock — the document packet carries multiplier 600, LOOP_STOP,
+        // step SYSTEM_CLOCK_MULTIPLIER and the 24 h 2026-05-25 interval. No invented multiplier.
+        // Viewer does this for the first data source; assert it so it cannot silently regress.
+        if (ds.clock) {
+          ds.clock.getValue(viewer.clock);
+          czmlEpoch = Cesium.JulianDate.clone(ds.clock.startTime, new Cesium.JulianDate());
+          clockDriven = true;
+        }
+        viewer.clock.shouldAnimate = true;
+        if (viewer.clockViewModel) viewer.clockViewModel.shouldAnimate = true;
+        // Style: point.color already carries STATUS as a time-varying property straight from the
+        // ABM (grey = at home/idle, blue = moving, orange = sheltering) and point.pixelSize
+        // already scales with vulnerability_score. Add the vulnerability ramp on the outline so
+        // the two encodings stay separable at street level.
+        const VULN_RE = /Vulnerability\s+([0-9.]+)/i;
+        let styled = 0;
+        for (const e of ds.entities.values) {
+          if (!e.point) continue;
+          let v = null;
+          try { const d = e.description && e.description.getValue(viewer.clock.currentTime);
+                const m = d && VULN_RE.exec(String(d)); if (m) v = parseFloat(m[1]); } catch (_) {}
+          if (v != null) { e.point.outlineColor = ramp(v); e.point.outlineWidth = 2; styled++; }
+          if (AGENTZ) {
+            // height-offset knob: re-project the CZML position AT THE SAME TIME SAMPLE, so the
+            // trajectory is untouched and only the height moves.
+            const src = e.position;
+            e.position = new Cesium.CallbackProperty((time, result) => {
+              const c = src.getValue(time, result);
+              if (!c) return undefined;
+              const g = Cesium.Cartographic.fromCartesian(c);
+              return Cesium.Cartesian3.fromRadians(g.longitude, g.latitude, g.height + AGENTZ, undefined, result);
+            }, false);
+          }
+        }
+        // the CZML clock is now the master: keep the sun, the hour label and the occupancy
+        // layer following it instead of the manual play timer.
+        if (clockDriven) viewer.clock.onTick.addEventListener(() => {
+          const secs = Cesium.JulianDate.secondsDifference(viewer.clock.currentTime, czmlEpoch);
+          const h = ((secs / 3600) % 24 + 24) % 24;
+          if (Math.abs(h - state.hour) > 0.05) setHour(h, true);
+        });
+        console.log(`[energy-cesium] agents_${SCENARIO}.czml: ${ds.entities.values.length} entities, ${styled} vulnerability-styled`);
+      } catch (e) { console.warn('agents czml failed', e); setNotice('Agent layer failed to load: ' + (e.message || e)); }
+    }
+
     // ---- live recolour + KPI on metric/demand/supply ----
     function recolor() {
       const [key, title] = METRICS[state.metric];
-      const [mn, mx] = scene.metric_ranges[key] || [0, 1];
-      const scenWWR = (state.metric === 'wwr' && state.demand !== 'baseline');
+      const isOcc = (state.metric === 'occupancy');
+      // occupancy is a fixed 0..100 % scale; every other metric uses the scene range
+      const [mn, mx] = isOcc ? [0, 100] : (scene.metric_ranges[key] || [0, 1]);
+      // scenario-aware layers: WWR, EUI and building energy all carry per-building
+      // sheet-derived S1/S2 values in b.scn, so S1/S2 is a real per-building change,
+      // not the flat block multiplier.
+      const SCN_FIELD = { wwr: 'wwr', intensity: 'eui', energy: 'annual_energy_kwh' }[state.metric];
+      const scenAware = (SCN_FIELD && state.demand !== 'baseline');
+      const OCC = scene.occupancy_hourly || {};
+      const hr = Math.floor(state.hour) % 24;
       for (const { b, entity } of ents) {
-        // WWR is scenario-aware: under S1/S2 use each building's REAL retrofit WWR
         let v = b[key];
-        if (state.metric === 'wwr' && b.scn && b.scn[state.demand]) v = b.scn[state.demand].wwr;
+        if (isOcc) { const o = OCC[String(b.id)]; v = o ? o[hr] : 0; }
+        else if (SCN_FIELD && b.scn && b.scn[state.demand] && b.scn[state.demand][SCN_FIELD] != null)
+          v = b.scn[state.demand][SCN_FIELD];
         const t = (mx > mn) ? (v - mn) / (mx - mn) : 0.5;
         entity.polygon.material = ramp(t);
       }
-      $('leg-title').textContent = title + (scenWWR ? ` · ${state.demand.toUpperCase()}` : '');
+      $('leg-title').textContent = title + (scenAware ? ` · ${state.demand.toUpperCase()}` : '')
+        + (isOcc ? ` · ${String(hr).padStart(2, '0')}:00` : '');
       $('lmin').textContent = Math.round(mn).toLocaleString();
       $('lmax').textContent = Math.round(mx).toLocaleString();
       kpi(); requestRender();
@@ -388,9 +641,11 @@ const ramp = (t) => {
       const baseCo2 = scene.supply_scenarios.baseline.annual_co2_tonnes;
       const delta = baseCo2 ? (co2 - baseCo2) / baseCo2 * 100 : 0;
       $('kpi-main').textContent = Math.round(energyMWh).toLocaleString() + ' MWh/yr';
+      $('kpi-main').title = 'Building load only (EV + bus charging excluded). ' +
+        'Absolute scale from Index_energy EUI and UNVERIFIED — see project_design.md §6.10.';
       $('kpi-co2').textContent = 'CO₂ ' + co2.toFixed(0) + ' t/yr' +
         (s.pv_kw ? ` · ${s.pv_kw}kW PV / ${s.bess_kwh}kWh BESS` : '');
-      $('kpi-scn').innerHTML = `demand: ${d.label} · supply: ${state.supply}` +
+      $('kpi-scn').innerHTML = `building load only · EUI scale (unverified) · demand: ${d.label} · supply: ${state.supply}` +
         (delta ? ` · <span style="color:#3ddc84">Δ CO₂ ${delta.toFixed(0)}%</span>` : '');
     }
     function mkBtns(host, opts, get, set) {
@@ -404,26 +659,73 @@ const ramp = (t) => {
       host._sync = s2;
     }
     function sync() { for (const h of [$('demandBtns'), $('supplyBtns')]) h._sync && h._sync(); }
-    mkBtns($('demandBtns'), [['baseline','BASE'],['s1','S1 −5%'],['s2','S2 −15%']],
+    // scenario reductions come from the sheets now, so the button labels do too
+    const demPct = k => (scene.demand_scenarios[k]?.annual_reduction_pct ?? 0);
+    mkBtns($('demandBtns'), [['baseline','BASE'],
+                             ['s1', `S1 −${demPct('s1').toFixed(1)}%`],
+                             ['s2', `S2 −${demPct('s2').toFixed(1)}%`]],
            () => state.demand, k => state.demand = k);
     mkBtns($('supplyBtns'), [['baseline','GRID'],['pv_bess','PV+BESS'],['pv_bess_chp','+CHP']],
            () => state.supply, k => state.supply = k);
 
-    // COLOUR BY — slider scrubs the 4 metrics (no clicking)
-    const METRIC_KEYS = ['energy','intensity','cost','wwr'], METRIC_NAME = ['ENERGY','EUI','COST','WWR'];
+    // COLOUR BY — slider scrubs the metrics (no clicking)
+    const METRIC_KEYS = ['energy','intensity','cost','wwr','occupancy'];
+    const METRIC_NAME = ['ENERGY','EUI','COST','WWR','OCCUPANCY'];
     const mSlider = $('metricSlider');
+    mSlider.max = String(METRIC_KEYS.length - 1);
     mSlider.oninput = () => { const i = +mSlider.value; state.metric = METRIC_KEYS[i]; $('metricName').textContent = METRIC_NAME[i]; recolor(); };
+
+    // LAYERS — AGENTS on/off. Turning the agents off also parks the clock, which puts the
+    // scene back on the on-demand render path (give-back #2: only live motion pays for it).
+    const layerHost = $('layerBtns');
+    if (layerHost) {
+      const ab = document.createElement('div'); ab.className = 'btn'; ab.textContent = 'AGENTS';
+      ab.title = agentsDs ? `Phase 1 ABM · agents_${SCENARIO}.czml · 100 pedestrians`
+                          : 'agent layer not loaded (?agents=1 to enable)';
+      const paint = () => ab.classList.toggle('on', !!(agentsDs && agentsDs.show));
+      ab.onclick = () => {
+        if (!agentsDs) return;
+        agentsDs.show = !agentsDs.show;
+        viewer.clock.shouldAnimate = agentsDs.show;
+        if (viewer.clockViewModel) viewer.clockViewModel.shouldAnimate = agentsDs.show;
+        sc.requestRenderMode = !agentsDs.show;
+        sc.maximumRenderTimeChange = agentsDs.show ? 0.5 : Infinity;
+        paint(); syncPlayBtn(); requestRender();
+      };
+      layerHost.appendChild(ab); paint();
+    }
 
     // TIME — slider + ▶ auto-play that walks the sun through a full day↔night
     const hSlider = $('hourSlider');
     hSlider.oninput = () => { stopPlay(); setHour(+hSlider.value); };
     let playTimer = null;
-    function stopPlay() { if (playTimer) { clearInterval(playTimer); playTimer = null; $('playBtn').classList.remove('on'); $('playBtn').textContent = '▶'; } }
-    function startPlay() { $('playBtn').classList.add('on'); $('playBtn').textContent = '⏸';
-      playTimer = setInterval(() => setHour((state.hour + 0.15) % 24), 90); }   // ~14 s per day
-    $('playBtn').onclick = () => playTimer ? stopPlay() : startPlay();
+    const syncPlayBtn = () => {
+      const on = clockDriven ? viewer.clock.shouldAnimate : !!playTimer;
+      $('playBtn').classList.toggle('on', on); $('playBtn').textContent = on ? '⏸' : '▶';
+    };
+    // With the agent CZML adopted, viewer.clock IS the animation (multiplier 600), so ▶ drives
+    // that clock instead of the old 90 ms setInterval — one clock for agents, sun and labels.
+    function stopPlay() {
+      if (clockDriven) { viewer.clock.shouldAnimate = false;
+        if (viewer.clockViewModel) viewer.clockViewModel.shouldAnimate = false; }
+      if (playTimer) { clearInterval(playTimer); playTimer = null; }
+      syncPlayBtn();
+    }
+    function startPlay() {
+      if (clockDriven) { viewer.clock.shouldAnimate = true;
+        if (viewer.clockViewModel) viewer.clockViewModel.shouldAnimate = true; }
+      else playTimer = setInterval(() => setHour((state.hour + 0.15) % 24), 90);   // ~14 s per day
+      syncPlayBtn();
+    }
+    $('playBtn').onclick = () => ((clockDriven ? viewer.clock.shouldAnimate : playTimer) ? stopPlay() : startPlay());
 
-    sync(); recolor(); setHour(12); window.__READY = true;
+    sync(); recolor(); setHour(12); syncPlayBtn();
+    if (agentsDs) {
+      const l = document.querySelector('#leg div:last-child');
+      if (l) l.innerHTML = 'grey = context buildings<br>' +
+        `dots = Phase 1 ABM pedestrians (${SCENARIO}) · fill = status, outline = vulnerability`;
+    }
+    window.__READY = true;
 
   } catch (err) { setStatus('Error: ' + (err.message || err), 'err'); console.error(err); }
 })();
