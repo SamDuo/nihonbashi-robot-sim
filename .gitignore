@@ -110,3 +110,7 @@ data/energy/Nihonbashi_District/
 data/energy/pings_in_area_6677.geojson
 *.pptx
 .gstack/
+
+# local-only: teammate unpublished manuscript + raw capture sessions
+Nihonbashi_Carbon_Neutrality_Pathways.pdf
+captures/
