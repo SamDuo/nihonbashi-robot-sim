@@ -1,0 +1,116 @@
+{
+  "written": "2026-07-30T23:26:04.368Z",
+  "base": "http://localhost:8889",
+  "size": "1920x1080",
+  "render_fps": 15,
+  "out_fps": 30,
+  "crf": "28",
+  "jpeg_quality": 92,
+  "storyboard": [
+    {
+      "name": "title",
+      "seconds": 1.5,
+      "frames": 23,
+      "start": 0
+    },
+    {
+      "name": "hero",
+      "seconds": 6,
+      "frames": 90,
+      "start": 23
+    },
+    {
+      "name": "orbit",
+      "seconds": 6,
+      "frames": 90,
+      "start": 113
+    },
+    {
+      "name": "metrics",
+      "seconds": 5,
+      "frames": 75,
+      "start": 203
+    },
+    {
+      "name": "scenarios",
+      "seconds": 5,
+      "frames": 75,
+      "start": 278
+    },
+    {
+      "name": "agents",
+      "seconds": 7,
+      "frames": 105,
+      "start": 353
+    },
+    {
+      "name": "pullback",
+      "seconds": 6,
+      "frames": 90,
+      "start": 458
+    }
+  ],
+  "segments": [
+    {
+      "segment": "hero",
+      "frames": 90,
+      "seconds_of_video": 6,
+      "render_s": 311.4,
+      "per_frame_s": 3.46,
+      "max_settle_ms": 8441,
+      "settle_timeouts": 0
+    },
+    {
+      "segment": "orbit",
+      "frames": 90,
+      "seconds_of_video": 6,
+      "render_s": 387.6,
+      "per_frame_s": 4.31,
+      "max_settle_ms": 8240,
+      "settle_timeouts": 0
+    },
+    {
+      "segment": "metrics",
+      "frames": 75,
+      "seconds_of_video": 5,
+      "render_s": 186.2,
+      "per_frame_s": 2.48,
+      "max_settle_ms": 6280,
+      "settle_timeouts": 0
+    },
+    {
+      "segment": "scenarios",
+      "frames": 75,
+      "seconds_of_video": 5,
+      "render_s": 229.7,
+      "per_frame_s": 3.06,
+      "max_settle_ms": 6321,
+      "settle_timeouts": 0
+    },
+    {
+      "segment": "agents",
+      "frames": 105,
+      "seconds_of_video": 7,
+      "render_s": 594.3,
+      "per_frame_s": 5.66,
+      "max_settle_ms": 6264,
+      "settle_timeouts": 0
+    },
+    {
+      "segment": "pullback",
+      "frames": 90,
+      "seconds_of_video": 6,
+      "render_s": 284,
+      "per_frame_s": 3.16,
+      "max_settle_ms": 6115,
+      "settle_timeouts": 0
+    }
+  ],
+  "output": {
+    "bytes": 105989291,
+    "frames": 548,
+    "duration_s": 36.53
+  },
+  "total_wall_s": 2111.3,
+  "final_size_bytes": 32126095
+}
